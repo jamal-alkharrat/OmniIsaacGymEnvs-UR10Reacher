@@ -35,7 +35,7 @@ task:
     maxConsecutiveSuccesses: 0
   sim:
     dt: 0.0083
-    add_ground_plane: true
+    add_ground_plane: false
     add_distant_light: true
     use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
     use_flatcache: true
@@ -95,6 +95,8 @@ task:
     fail_quietely: false
     verbose: false
   safety:
+    enabled: false
+  verbose:
     enabled: false
 train:
   params:

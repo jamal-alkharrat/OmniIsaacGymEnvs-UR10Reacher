@@ -43,7 +43,6 @@ import torch
 import math
 
 
-
 class UR10ReacherTask(ReacherTask):
     def __init__(
         self,
@@ -78,15 +77,6 @@ class UR10ReacherTask(ReacherTask):
         self._num_actions = 6
         self._num_states = 0
 
-        ## defining slow and fast targets ##
-
-        self.slow_target = None
-        self.fast_target = None
-        self.current_target = None
-
-        ##########
-
-
         pi = math.pi
         if self._task_cfg['safety']['enabled']:
             # Depends on your real robot setup
@@ -114,8 +104,6 @@ class UR10ReacherTask(ReacherTask):
 
         ReacherTask.__init__(self, name=name, env=env)
 
-  
-
         # Setup Sim2Real
         sim2real_config = self._task_cfg['sim2real']
         if sim2real_config['enabled'] and self.test and self.num_envs == 1:
@@ -125,11 +113,6 @@ class UR10ReacherTask(ReacherTask):
                 sim2real_config['verbose']
             )
         return
-    
-
-
-
-
 
     def get_num_dof(self):
         return self._arms.num_dof
@@ -161,16 +144,6 @@ class UR10ReacherTask(ReacherTask):
         else:
             print("Unkown observations type!")
 
-        ### Verbose ###
-        
-        verb_config = self._task_cfg['verbose']
-        assert verb_config
-        if verb_config['enabled']:
-            print("testing!!!!!!!")
-            print("action moving average = %s ", self.act_moving_average)
-
-        #########  
-
         observations = {
             self._arms.name: {
                 "obs_buf": self.obs_buf
@@ -183,21 +156,10 @@ class UR10ReacherTask(ReacherTask):
         # new_pos = torch_rand_float(-1, 1, (n_reset_envs, 3), device=self.device)
         # print(new_pos)
         # print(new_pos.shape)
-        target_poses = [[0.443423, -0.13423, 0.343423],[-0.543423, -0.13423, 0.343423]] #,[-0.143423, -0.13423, 0.343423], [-0.443423, -0.13423, 0.343423]
-        
-        self.slow_target = torch.tensor([0.443423, -0.13423, 0.343423], device=self.device)
-        self.fast_target = torch.tensor([-0.543423, -0.13423, 0.343423], device=self.device)
-        
+        target_poses = [[0.443423, -0.13423, 0.343423],[0.23423, -0.13423, 0.343423],[-0.143423, -0.13423, 0.343423], [-0.443423, -0.13423, 0.343423]]
         target_pose = torch.tensor(random.choice(target_poses), device=self.device)
-
-        if target_pose[0] == self.slow_target[0]:
-            self.current_target = 1
-        elif target_pose[0] == self.fast_target[0]: 
-            self.current_target = 2
-            
         # new_pos = torch.full((n_reset_envs, 3),random.choice(target_poses) , device=self.device)
         new_pos = target_pose.repeat(n_reset_envs,1)
-        cur_mit_env = torch.tensor([self.current_target for x in range(n_reset_envs)], device=self.device)
         if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
             # Depends on your real robot setup
             new_pos[:, 0] = torch.abs(new_pos[:, 0] * 0.1) + 0.35
@@ -210,7 +172,7 @@ class UR10ReacherTask(ReacherTask):
         if self._task_cfg['safety']['enabled']:
             new_pos[:, 0] = torch.abs(new_pos[:, 0]) / 1.25
             new_pos[:, 1] = torch.abs(new_pos[:, 1]) / 1.25
-        return new_pos, cur_mit_env
+        return new_pos
 
     def compute_full_observations(self, no_vel=False):
         if no_vel:
@@ -225,7 +187,6 @@ class UR10ReacherTask(ReacherTask):
             self.obs_buf[:, base+3:base+7] = self.goal_rot
             self.obs_buf[:, base+7:base+11] = quat_mul(self.object_rot, quat_conjugate(self.goal_rot))
             self.obs_buf[:, base+11:base+17] = self.actions
-            self.obs_buf[:, base+17:base+18] = self.act_moving_average
 
     def send_joint_pos(self, joint_pos):
         self.real_world_ur10.send_joint_pos(joint_pos)

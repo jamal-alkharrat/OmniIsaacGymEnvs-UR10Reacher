@@ -31,29 +31,22 @@ from abc import abstractmethod
 
 from omniisaacgymenvs.tasks.base.rl_task import RLTask
 from omni.isaac.core.prims import RigidPrimView, XFormPrim
-from omni.isaac.core.scenes.scene import Scene
+from omni.isaac.core.utils.nucleus import get_assets_root_path
 from omni.isaac.core.utils.prims import get_prim_at_path
 from omni.isaac.core.utils.stage import get_current_stage, add_reference_to_stage
 from omni.isaac.core.utils.torch import *
-# `scale` maps [-1, 1] to [L, U]; `unscale` maps [L, U] to [-1, 1]
-from omni.isaac.core.utils.torch import scale, unscale
-from omni.isaac.gym.vec_env import VecEnvBase
-from omni.isaac.core.utils import nucleus
-from omni.isaac.core.utils.viewports import set_camera_view
 
 import numpy as np
 import torch
+import math
 
+import omni.replicator.isaac as dr
 
-BACKGROUND_STAGE_PATH = "/background"
-BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
-assets_root_path = nucleus.get_assets_root_path()
-
-class ReacherTask(RLTask):
+class InHandManipulationTask(RLTask):
     def __init__(
         self,
-        name: str,
-        env: VecEnvBase,
+        name,
+        env,
         offset=None
     ) -> None:
         """[summary]
@@ -66,6 +59,8 @@ class ReacherTask(RLTask):
         self.action_penalty_scale = self._task_cfg["env"]["actionPenaltyScale"]
         self.success_tolerance = self._task_cfg["env"]["successTolerance"]
         self.reach_goal_bonus = self._task_cfg["env"]["reachGoalBonus"]
+        self.fall_dist = self._task_cfg["env"]["fallDistance"]
+        self.fall_penalty = self._task_cfg["env"]["fallPenalty"]
         self.rot_eps = self._task_cfg["env"]["rotEps"]
         self.vel_obs_scale = self._task_cfg["env"]["velObsScale"]
 
@@ -74,7 +69,7 @@ class ReacherTask(RLTask):
         self.reset_dof_pos_noise = self._task_cfg["env"]["resetDofPosRandomInterval"]
         self.reset_dof_vel_noise = self._task_cfg["env"]["resetDofVelRandomInterval"]
 
-        self.arm_dof_speed_scale = self._task_cfg["env"]["dofSpeedScale"]
+        self.hand_dof_speed_scale = self._task_cfg["env"]["dofSpeedScale"]
         self.use_relative_control = self._task_cfg["env"]["useRelativeControl"]
         self.act_moving_average = self._task_cfg["env"]["actionsMovingAverage"]
 
@@ -97,79 +92,60 @@ class ReacherTask(RLTask):
         self.y_unit_tensor = torch.tensor([0, 1, 0], dtype=torch.float, device=self.device).repeat((self.num_envs, 1))
         self.z_unit_tensor = torch.tensor([0, 0, 1], dtype=torch.float, device=self.device).repeat((self.num_envs, 1))
 
-        # Indicates which environments should be reset
         self.reset_goal_buf = self.reset_buf.clone()
         self.successes = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.consecutive_successes = torch.zeros(1, dtype=torch.float, device=self.device)
+        self.randomization_buf = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         self.av_factor = torch.tensor(self.av_factor, dtype=torch.float, device=self.device)
         self.total_successes = 0
         self.total_resets = 0
-
-
-        ### Define vel reward ###
-        self.cur_goal_pos = []
-        self.vel_reward = 0
         return
-
-    def set_up_scene(self, scene: Scene) -> None:
+    
+    def set_up_scene(self, scene) -> None:
         self._stage = get_current_stage()
-        add_reference_to_stage(assets_root_path + BACKGROUND_USD_PATH, BACKGROUND_STAGE_PATH)
-        self._assets_root_path = 'omniverse://localhost/Projects/J3soon/Isaac/2022.1'
-        self.get_arm()
-        self.get_object()
+        self._assets_root_path = get_assets_root_path()
+        hand_start_translation, pose_dy, pose_dz = self.get_hand()
+        self.get_object(hand_start_translation, pose_dy, pose_dz)
         self.get_goal()
 
         super().set_up_scene(scene)
-
-        self._arms = self.get_arm_view(scene)
-        scene.add(self._arms)
+   
+        self._hands = self.get_hand_view(scene)
+        scene.add(self._hands)
         self._objects = RigidPrimView(
             prim_paths_expr="/World/envs/env_.*/object/object",
-            name="object_view",
+            name="object_view", 
             reset_xform_properties=False,
+            masses=torch.tensor([0.07087]*self._num_envs, device=self.device),
         )
         scene.add(self._objects)
         self._goals = RigidPrimView(
-            prim_paths_expr="/World/envs/env_.*/goal/object",
-            name="goal_view",
-            reset_xform_properties=False,
+            prim_paths_expr="/World/envs/env_.*/goal/object", 
+            name="goal_view", 
+            reset_xform_properties=False
         )
         scene.add(self._goals)
-
-        # set default camera viewport position and target
-        self.set_initial_camera_params()
-
-    def set_initial_camera_params(self, camera_position=[3, 3, 2], camera_target=[0, 0, 0]):
-        set_camera_view(eye=camera_position, target=camera_target, camera_prim_path="/OmniverseKit_Persp")
-
-
+   
+        if self._dr_randomizer.randomize:
+            self._dr_randomizer.apply_on_startup_domain_randomization(self)
+    
     @abstractmethod
-    def get_num_dof(self):
+    def get_hand(self):
         pass
 
     @abstractmethod
-    def get_arm(self):
-        pass
-
-    @abstractmethod
-    def get_arm_view(self):
+    def get_hand_view(self):
         pass
 
     @abstractmethod
     def get_observations(self):
         pass
 
-    @abstractmethod
-    def get_reset_target_new_pos(self, n_reset_envs):
-        pass
-
-    @abstractmethod
-    def send_joint_pos(self, joint_pos):
-        pass
-
-    def get_object(self):
-        self.object_start_translation = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+    def get_object(self, hand_start_translation, pose_dy, pose_dz):
+        self.object_start_translation = hand_start_translation.clone()
+        self.object_start_translation[1] += pose_dy
+        self.object_start_translation[2] += pose_dz
         self.object_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/object")
@@ -178,67 +154,76 @@ class ReacherTask(RLTask):
             name="object",
             translation=self.object_start_translation,
             orientation=self.object_start_orientation,
-            scale=self.object_scale
+            scale=self.object_scale,
         )
         self._sim_config.apply_articulation_settings("object", get_prim_at_path(obj.prim_path), self._sim_config.parse_actor_config("object"))
-
+    
     def get_goal(self):
-        self.goal_displacement_tensor = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-        self.goal_start_translation = torch.tensor([0.0, 0.0, 0.0], device=self.device) + self.goal_displacement_tensor
+        self.goal_displacement_tensor = torch.tensor([-0.2, -0.06, 0.12], device=self.device)
+        self.goal_start_translation = self.object_start_translation + self.goal_displacement_tensor
+        self.goal_start_translation[2] -= 0.04
         self.goal_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
-
-        self.goal_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
-        add_reference_to_stage(self.goal_usd_path, self.default_zero_env_path + "/goal")
+        add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/goal")
         goal = XFormPrim(
-            prim_path=self.default_zero_env_path + "/goal/object",
+            prim_path=self.default_zero_env_path + "/goal",
             name="goal",
             translation=self.goal_start_translation,
             orientation=self.goal_start_orientation,
-            scale=self.goal_scale
+            scale=self.object_scale
         )
         self._sim_config.apply_articulation_settings("goal", get_prim_at_path(goal.prim_path), self._sim_config.parse_actor_config("goal_object"))
 
     def post_reset(self):
-        self.num_arm_dofs = self.get_num_dof()
-        self.actuated_dof_indices = torch.arange(self.num_arm_dofs, dtype=torch.long, device=self.device)
+        self.num_hand_dofs = self._hands.num_dof
+        self.actuated_dof_indices = self._hands.actuated_dof_indices 
 
-        self.arm_dof_targets = torch.zeros((self.num_envs, self._arms.num_dof), dtype=torch.float, device=self.device)
+        self.hand_dof_targets = torch.zeros((self.num_envs, self.num_hand_dofs), dtype=torch.float, device=self.device)
 
-        self.prev_targets = torch.zeros((self.num_envs, self.num_arm_dofs+1), dtype=torch.float, device=self.device)
-        self.cur_targets = torch.zeros((self.num_envs, self.num_arm_dofs+1), dtype=torch.float, device=self.device)
+        self.prev_targets = torch.zeros((self.num_envs, self.num_hand_dofs), dtype=torch.float, device=self.device)
+        self.cur_targets = torch.zeros((self.num_envs, self.num_hand_dofs), dtype=torch.float, device=self.device)
+        
+        dof_limits = self._hands.get_dof_limits()
+        self.hand_dof_lower_limits, self.hand_dof_upper_limits = torch.t(dof_limits[0].to(self.device))
 
-        dof_limits = self._dof_limits
-        self.arm_dof_lower_limits, self.arm_dof_upper_limits = torch.t(dof_limits[0].to(self.device))
+        self.hand_dof_default_pos = torch.zeros(self.num_hand_dofs, dtype=torch.float, device=self.device)
+        self.hand_dof_default_vel = torch.zeros(self.num_hand_dofs, dtype=torch.float, device=self.device)
 
-        self.arm_dof_default_pos = torch.zeros(self.num_arm_dofs, dtype=torch.float, device=self.device)
-        self.arm_dof_default_vel = torch.zeros(self.num_arm_dofs, dtype=torch.float, device=self.device)
+        self.object_init_pos, self.object_init_rot = self._objects.get_world_poses()
+        self.object_init_pos -= self._env_pos
+        self.object_init_velocities = torch.zeros_like(self._objects.get_velocities(), dtype=torch.float, device=self.device)
 
-        self.end_effectors_init_pos, self.end_effectors_init_rot = self._arms._end_effectors.get_world_poses()
+        self.goal_pos = self.object_init_pos.clone()
+        self.goal_pos[:, 2] -= 0.04
+        self.goal_rot = self.object_init_rot.clone()
 
-        self.goal_pos, self.goal_rot = self._goals.get_world_poses()
-        self.goal_pos -= self._env_pos
-
-        # print("Type of goal post after post !!!!!!!!!!!!!! ",type(self.goal_pos))
-        self.currvel = self.act_moving_average
+        self.goal_init_pos = self.goal_pos.clone()
+        self.goal_init_rot = self.goal_rot.clone()
 
         # randomize all envs
         indices = torch.arange(self._num_envs, dtype=torch.int64, device=self._device)
         self.reset_idx(indices)
 
+        if self._dr_randomizer.randomize:
+            self._dr_randomizer.set_up_domain_randomization(self)
+
+    def get_object_goal_observations(self):
+        self.object_pos, self.object_rot = self._objects.get_world_poses(clone=False)
+        self.object_pos -= self._env_pos
+        self.object_velocities = self._objects.get_velocities(clone=False)
+        self.object_linvel = self.object_velocities[:, 0:3]
+        self.object_angvel = self.object_velocities[:, 3:6]
+    
     def calculate_metrics(self):
-        self.fall_dist = 0
-        self.fall_penalty = 0
-        self.velocity_reward = 0
-        self.rew_buf[:], self.reset_buf[:], self.reset_goal_buf[:], self.progress_buf[:], self.successes[:], self.consecutive_successes[:] = compute_arm_reward(
+        self.rew_buf[:], self.reset_buf[:], self.reset_goal_buf[:], self.progress_buf[:], self.successes[:], self.consecutive_successes[:] = compute_hand_reward(
             self.rew_buf, self.reset_buf, self.reset_goal_buf, self.progress_buf, self.successes, self.consecutive_successes,
             self.max_episode_length, self.object_pos, self.object_rot, self.goal_pos, self.goal_rot,
             self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
             self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
             self.max_consecutive_successes, self.av_factor,
-            self.velocity_reward, self.cur_goal_pos,
         )
 
         self.extras['consecutive_successes'] = self.consecutive_successes.mean()
+        self.randomization_buf += 1
 
         if self.print_success_stat:
             self.total_resets = self.total_resets + self.reset_buf.sum()
@@ -248,19 +233,12 @@ class ReacherTask(RLTask):
             print("Direct average consecutive successes = {:.1f}".format(direct_average_successes/(self.total_resets + self.num_envs)))
             if self.total_resets > 0:
                 print("Post-Reset average consecutive successes = {:.1f}".format(self.total_successes/self.total_resets))
-
+    
     def pre_physics_step(self, actions):
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
 
-        end_effectors_pos, end_effectors_rot = self._arms._end_effectors.get_world_poses()
-        # Reverse the default rotation and rotate the displacement tensor according to the current rotation
-        self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot, quat_rotate_inverse(self.end_effectors_init_rot, self.get_object_displacement_tensor()))
-        self.object_pos -= self._env_pos # subtract world env pos
-        self.object_rot = end_effectors_rot
-        object_pos = self.object_pos + self._env_pos
-        object_rot = self.object_rot
-        self._objects.set_world_poses(object_pos, object_rot)
+        reset_buf = self.reset_buf.clone()
 
         # if only goals need reset, then call set API
         if len(goal_env_ids) > 0 and len(env_ids) == 0:
@@ -271,42 +249,30 @@ class ReacherTask(RLTask):
             self.reset_idx(env_ids)
 
         self.actions = actions.clone().to(self.device)
-        # Reacher tasks don't require gripper actions, disable it.
-        self.actions[:, 5] = 0.0
-        
 
         if self.use_relative_control:
-            targets = self.prev_targets[:, self.actuated_dof_indices] + self.arm_dof_speed_scale * self.dt * self.actions
+            targets = self.prev_targets[:, self.actuated_dof_indices] + self.hand_dof_speed_scale * self.dt * self.actions
             self.cur_targets[:, self.actuated_dof_indices] = tensor_clamp(targets,
-                self.arm_dof_lower_limits[self.actuated_dof_indices], self.arm_dof_upper_limits[self.actuated_dof_indices])
-
-
+                self.hand_dof_lower_limits[self.actuated_dof_indices], self.hand_dof_upper_limits[self.actuated_dof_indices])
         else:
             self.cur_targets[:, self.actuated_dof_indices] = scale(self.actions,
-                self.arm_dof_lower_limits[self.actuated_dof_indices], self.arm_dof_upper_limits[self.actuated_dof_indices])
+                self.hand_dof_lower_limits[self.actuated_dof_indices], self.hand_dof_upper_limits[self.actuated_dof_indices])
             self.cur_targets[:, self.actuated_dof_indices] = self.act_moving_average * self.cur_targets[:, self.actuated_dof_indices] + \
                 (1.0 - self.act_moving_average) * self.prev_targets[:, self.actuated_dof_indices]
             self.cur_targets[:, self.actuated_dof_indices] = tensor_clamp(self.cur_targets[:, self.actuated_dof_indices],
-                self.arm_dof_lower_limits[self.actuated_dof_indices], self.arm_dof_upper_limits[self.actuated_dof_indices])
+                self.hand_dof_lower_limits[self.actuated_dof_indices], self.hand_dof_upper_limits[self.actuated_dof_indices])
 
         self.prev_targets[:, self.actuated_dof_indices] = self.cur_targets[:, self.actuated_dof_indices]
-        self.prev_targets[:, -1] = self.cur_targets[:, -1] 
-        print(self.prev_targets[:, -1])
-        self.act_moving_average = self.prev_targets[:, -1]
 
-        self._arms.set_joint_position_targets(
+        self._hands.set_joint_position_targets(
             self.cur_targets[:, self.actuated_dof_indices], indices=None, joint_indices=self.actuated_dof_indices
         )
-        if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
-            # Only retrieve the 0-th joint position even when multiple envs are used
-            cur_joint_pos = self._arms.get_joint_positions(indices=[0], joint_indices=self.actuated_dof_indices)
-            # Send the current joint positions to the real robot
-            joint_pos = cur_joint_pos[0]
-            if torch.any(joint_pos < self.arm_dof_lower_limits) or torch.any(joint_pos > self.arm_dof_upper_limits):
-                print("get_joint_positions out of bound, send_joint_pos skipped")
-            else:
-                self.send_joint_pos(joint_pos)
 
+        if self._dr_randomizer.randomize:
+            rand_envs = torch.where(self.randomization_buf >= self._dr_randomizer.min_frequency, torch.ones_like(self.randomization_buf), torch.zeros_like(self.randomization_buf))
+            rand_env_ids = torch.nonzero(torch.logical_and(rand_envs, reset_buf))
+            dr.physics_view.step_randomization(rand_env_ids)
+            self.randomization_buf[rand_env_ids] = 0
 
     def is_done(self):
         pass
@@ -316,54 +282,53 @@ class ReacherTask(RLTask):
         indices = env_ids.to(dtype=torch.int32)
         rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), 4), device=self.device)
 
-        new_pos, curr_pos = self.get_reset_target_new_pos(len(env_ids))
         new_rot = randomize_rotation(rand_floats[:, 0], rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
-        self.cur_goal_pos = torch.zeros(len(self.goal_pos),dtype=torch.long, device=self.device)
-        # print(len(self.cur_goal_pos))
-        self.goal_pos[env_ids] = new_pos
-        self.goal_rot[env_ids] = new_rot
-        # print("goal", new_pos.shape, curr_pos)
-        # print("type self goal" ,type(self.goal_pos))
-        # print("slowfast" ,type(curr_pos))
 
-        #print(curr_pos)
-        self.cur_goal_pos[env_ids] = curr_pos
-        
+        self.goal_pos[env_ids] = self.goal_init_pos[env_ids, 0:3]
+        self.goal_rot[env_ids] = new_rot
 
         goal_pos, goal_rot = self.goal_pos.clone(), self.goal_rot.clone()
-        goal_pos[env_ids] = self.goal_pos[env_ids] + self._env_pos[env_ids] # add world env pos
-
-
+        goal_pos[env_ids] = self.goal_pos[env_ids] + self.goal_displacement_tensor + self._env_pos[env_ids] # add world env pos
+        
         self._goals.set_world_poses(goal_pos[env_ids], goal_rot[env_ids], indices)
         self.reset_goal_buf[env_ids] = 0
 
     def reset_idx(self, env_ids):
         indices = env_ids.to(dtype=torch.int32)
-        rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), self.num_arm_dofs * 2 + 5), device=self.device)
+        rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), self.num_hand_dofs * 2 + 5), device=self.device)
 
         self.reset_target_pose(env_ids)
+        
+        # reset object
+        new_object_pos = self.object_init_pos[env_ids] + \
+            self.reset_position_noise * rand_floats[:, 0:3] + self._env_pos[env_ids] # add world env pos
 
-        # reset arm
-        delta_max = self.arm_dof_upper_limits - self.arm_dof_default_pos
-        delta_min = self.arm_dof_lower_limits - self.arm_dof_default_pos
-        rand_delta = delta_min + (delta_max - delta_min) * (rand_floats[:, 5:5+self.num_arm_dofs] + 1.0) * 0.5
+        new_object_rot = randomize_rotation(rand_floats[:, 3], rand_floats[:, 4], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
 
-        pos = self.arm_dof_default_pos + self.reset_dof_pos_noise * rand_delta
-        dof_pos = torch.zeros((self.num_envs, self._arms.num_dof), device=self.device)
-        dof_pos[env_ids, :self.num_arm_dofs] = pos
+        object_velocities = torch.zeros_like(self.object_init_velocities, dtype=torch.float, device=self.device)
+        self._objects.set_velocities(object_velocities[env_ids], indices)
+        self._objects.set_world_poses(new_object_pos, new_object_rot, indices)
 
-        dof_vel = torch.zeros((self.num_envs, self._arms.num_dof), device=self.device)
-        dof_vel[env_ids, :self.num_arm_dofs] = self.arm_dof_default_vel + \
-            self.reset_dof_vel_noise * rand_floats[:, 5+self.num_arm_dofs:5+self.num_arm_dofs*2]
+        # reset hand
+        delta_max = self.hand_dof_upper_limits - self.hand_dof_default_pos
+        delta_min = self.hand_dof_lower_limits - self.hand_dof_default_pos
+        rand_delta = delta_min + (delta_max - delta_min) * rand_floats[:, 5:5+self.num_hand_dofs]
 
-        self.prev_targets[env_ids, :self.num_arm_dofs] = pos
-        self.cur_targets[env_ids, :self.num_arm_dofs] = pos
-        self.arm_dof_targets[env_ids, :self.num_arm_dofs] = pos
+        pos = self.hand_dof_default_pos + self.reset_dof_pos_noise * rand_delta
+        dof_pos = torch.zeros((self.num_envs, self.num_hand_dofs), device=self.device)
+        dof_pos[env_ids, :] = pos
 
-        self._arms.set_joint_position_targets(self.arm_dof_targets[env_ids], indices)
-        # set_joint_positions doesn't seem to apply immediately.
-        self._arms.set_joint_positions(dof_pos[env_ids], indices)
-        self._arms.set_joint_velocities(dof_vel[env_ids], indices)
+        dof_vel = torch.zeros((self.num_envs, self.num_hand_dofs), device=self.device)
+        dof_vel[env_ids, :] = self.hand_dof_default_vel + \
+            self.reset_dof_vel_noise * rand_floats[:, 5+self.num_hand_dofs:5+self.num_hand_dofs*2]
+
+        self.prev_targets[env_ids, :self.num_hand_dofs] = pos
+        self.cur_targets[env_ids, :self.num_hand_dofs] = pos
+        self.hand_dof_targets[env_ids, :] = pos
+
+        self._hands.set_joint_position_targets(self.hand_dof_targets[env_ids], indices)
+        self._hands.set_joint_positions(dof_pos[env_ids], indices)
+        self._hands.set_joint_velocities(dof_vel[env_ids], indices)
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
@@ -380,14 +345,13 @@ def randomize_rotation(rand0, rand1, x_unit_tensor, y_unit_tensor):
 
 
 @torch.jit.script
-def compute_arm_reward(
+def compute_hand_reward(
     rew_buf, reset_buf, reset_goal_buf, progress_buf, successes, consecutive_successes,
     max_episode_length: float, object_pos, object_rot, target_pos, target_rot,
     dist_reward_scale: float, rot_reward_scale: float, rot_eps: float,
     actions, action_penalty_scale: float,
     success_tolerance: float, reach_goal_bonus: float, fall_dist: float,
-    fall_penalty: float, max_consecutive_successes: int, av_factor: float,
-    velocity_reward: float, cur_goal_pos,
+    fall_penalty: float, max_consecutive_successes: int, av_factor: float
 ):
 
     goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
@@ -401,28 +365,30 @@ def compute_arm_reward(
 
     action_penalty = torch.sum(actions ** 2, dim=-1)
 
-    #### Velocty Reward ######
-
-    # if target_pos = 
-    # print("currennttt", cur_goal_pos)
-    #print("test goallll",object_pos, target_pos)
-
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
-    reward = dist_rew + action_penalty * action_penalty_scale
+    reward = dist_rew + rot_rew + action_penalty * action_penalty_scale
 
     # Find out which envs hit the goal and update successes count
-    goal_resets = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf), reset_goal_buf)
+    goal_resets = torch.where(torch.abs(rot_dist) <= success_tolerance, torch.ones_like(reset_goal_buf), reset_goal_buf)
     successes = successes + goal_resets
 
     # Success bonus: orientation is within `success_tolerance` of goal orientation
     reward = torch.where(goal_resets == 1, reward + reach_goal_bonus, reward)
 
-    resets = reset_buf
+    # Fall penalty: distance to the goal is larger than a threashold
+    reward = torch.where(goal_dist >= fall_dist, reward + fall_penalty, reward)
+
+    # Check env termination conditions, including maximum success number
+    resets = torch.where(goal_dist >= fall_dist, torch.ones_like(reset_buf), reset_buf)
     if max_consecutive_successes > 0:
         # Reset progress buffer on goal envs if max_consecutive_successes > 0
         progress_buf = torch.where(torch.abs(rot_dist) <= success_tolerance, torch.zeros_like(progress_buf), progress_buf)
         resets = torch.where(successes >= max_consecutive_successes, torch.ones_like(resets), resets)
-    resets = torch.where(progress_buf >= max_episode_length, torch.ones_like(resets), resets)
+    resets = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(resets), resets)
+
+    # Apply penalty for not reaching the goal
+    if max_consecutive_successes > 0:
+        reward = torch.where(progress_buf >= max_episode_length - 1, reward + 0.5 * fall_penalty, reward)
 
     num_resets = torch.sum(resets)
     finished_cons_successes = torch.sum(successes * resets.float())
@@ -430,3 +396,10 @@ def compute_arm_reward(
     cons_successes = torch.where(num_resets > 0, av_factor*finished_cons_successes/num_resets + (1.0 - av_factor)*consecutive_successes, consecutive_successes)
 
     return reward, resets, goal_resets, progress_buf, successes, cons_successes
+        
+
+
+
+
+
+    
