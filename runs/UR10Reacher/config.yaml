@@ -31,11 +31,11 @@ task:
     velObsScale: 0.2
     observationType: full
     successTolerance: 0.1
-    printNumSuccesses: false
+    printNumSuccesses: true
     maxConsecutiveSuccesses: 0
   sim:
     dt: 0.0083
-    add_ground_plane: true
+    add_ground_plane: false
     add_distant_light: true
     use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
     use_flatcache: true

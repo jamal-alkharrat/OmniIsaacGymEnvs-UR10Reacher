@@ -38,10 +38,16 @@ from omni.isaac.core.utils.torch import *
 # `scale` maps [-1, 1] to [L, U]; `unscale` maps [L, U] to [-1, 1]
 from omni.isaac.core.utils.torch import scale, unscale
 from omni.isaac.gym.vec_env import VecEnvBase
+from omni.isaac.core.utils import nucleus
+from omni.isaac.core.utils.viewports import set_camera_view
 
 import numpy as np
 import torch
 
+
+BACKGROUND_STAGE_PATH = "/background"
+BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
+assets_root_path = nucleus.get_assets_root_path()
 
 class ReacherTask(RLTask):
     def __init__(
@@ -103,6 +109,7 @@ class ReacherTask(RLTask):
 
     def set_up_scene(self, scene: Scene) -> None:
         self._stage = get_current_stage()
+        add_reference_to_stage(assets_root_path + BACKGROUND_USD_PATH, BACKGROUND_STAGE_PATH)
         self._assets_root_path = 'omniverse://localhost/Projects/J3soon/Isaac/2022.1'
         self.get_arm()
         self.get_object()
@@ -124,6 +131,13 @@ class ReacherTask(RLTask):
             reset_xform_properties=False,
         )
         scene.add(self._goals)
+
+        # set default camera viewport position and target
+        self.set_initial_camera_params()
+
+    def set_initial_camera_params(self, camera_position=[3, 3, 2], camera_target=[0, 0, 0]):
+        set_camera_view(eye=camera_position, target=camera_target, camera_prim_path="/OmniverseKit_Persp")
+
 
     @abstractmethod
     def get_num_dof(self):

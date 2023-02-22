@@ -41,12 +41,12 @@ env:
 
   observationType: "full" # can only be "full"
   successTolerance: 0.1
-  printNumSuccesses: False
+  printNumSuccesses: True
   maxConsecutiveSuccesses: 0
 
 sim:
   dt: 0.0083 # 1/120 s
-  add_ground_plane: True
+  add_ground_plane: False
   add_distant_light: True
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   use_flatcache: True
