@@ -4,3 +4,6 @@ runs
 omniisaacgymenvs.egg-info/
 checkpoints
 omniisaacgymenvs/wandb
+omniisaacgymenvs/tasks/shared/__pycache__/reacher.cpython-37.pyc
+omniisaacgymenvs/robots/articulations/views/__pycache__/ur10_view.cpython-37.pyc
+omniisaacgymenvs/tasks/__pycache__/ur10_reacher.cpython-37.pyc
