@@ -35,7 +35,7 @@ task:
     maxConsecutiveSuccesses: 0
   sim:
     dt: 0.0083
-    add_ground_plane: false
+    add_ground_plane: true
     add_distant_light: true
     use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
     use_flatcache: true
@@ -163,7 +163,7 @@ train:
       truncate_grads: true
       e_clip: 0.2
       horizon_length: 64
-      minibatch_size: 32768
+      minibatch_size: 41600
       mini_epochs: 5
       critic_coef: 4
       clip_value: true
@@ -175,7 +175,7 @@ train:
         print_stats: true
 task_name: ${task.name}
 experiment: ''
-num_envs: 1
+num_envs: 20
 seed: 42
 torch_deterministic: false
 max_iterations: ''
@@ -187,7 +187,7 @@ rl_device: cuda:0
 num_threads: 4
 solver_type: 1
 test: true
-checkpoint: /home/abi/Desktop/isaac-sim-RL/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/runs/UR10Reacher/nn/UR10Reacher.pth
+checkpoint: /home/abi/Desktop/isaac-sim-RL/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/runs/UR10Reacher/nn/last_UR10Reacher_ep_3000_rew_3672.4424.pth
 headless: false
 wandb_activate: false
 wandb_group: ''
