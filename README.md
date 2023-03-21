@@ -1,3 +1,38 @@
+# UR10 Reacher Reinforcement Learning 
+
+Main Branch 
+
+The main branch of this repo has a changed scene and follows the task of moving to two different positions.
+
+UR10test
+
+The task is to go to 2 pecific points in the 3D space, one with a lower speed and the other with a higher speed. For that 2 speed points are kept for reference (one low speed and one high speed).
+
+This branch has an additional action item in its action space which is the speed of the robot (average of the joint velocities at a scale), it also has an addition of two observation items (additional action item and the previous goal position)
+
+Reward structure: 
+
+case 1 : When the goal position requires the end effector to reach the goal at a higher speed: 
+if the speed of the end effector is higher than the high speed, reward is  +0.5 else reward is -0.5. 
+
+case 2 : When the goal position requires the end effector to reach the goal at a lower speed: 
+if the speed of the end effector is higher than the low speed, reward is - 0.5 else reward is +0.5.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # UR10 Reacher Reinforcement Learning Sim2Real Environment for Omniverse Isaac Gym/Sim
 
 This repository adds a UR10Reacher environment based on [OmniIsaacGymEnvs](https://github.com/NVIDIA-Omniverse/OmniIsaacGymEnvs) (commit [d0eaf2e](https://github.com/NVIDIA-Omniverse/OmniIsaacGymEnvs/tree/d0eaf2e7f1e1e901d62e780392ca77843c08eb2c)), and includes Sim2Real code to control a real-world [UR10](https://www.universal-robots.com/products/ur10-robot/) with the policy learned by reinforcement learning in Omniverse Isaac Gym/Sim.
