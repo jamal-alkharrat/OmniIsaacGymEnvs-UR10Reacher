@@ -5,3 +5,5 @@ runs
 omniisaacgymenvs.egg-info/
 checkpoints
 omniisaacgymenvs/wandb
+omniisaacgymenvs/runs
+omniisaacgymenvs/runs/UR10Reacher/nn/UR10Reacher.pth
