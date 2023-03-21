@@ -62,20 +62,21 @@ class UR10ReacherTask(ReacherTask):
                 "Unknown type of observations!\nobservationType should be one of: [full]")
         print("Obs type:", self.obs_type)
         self.num_obs_dict = {
-            "full": 29,
+            "full": 31,
             # 6: UR10 joints position (action space)
             # 6: UR10 joints velocity
             # 3: goal position
             # 4: goal rotation
             # 4: goal relative rotation
             # 6: previous action
+            # 7: previous goal position 
         }
 
         self.object_scale = torch.tensor([1.0] * 3)
         self.goal_scale = torch.tensor([2.0] * 3)
 
         self._num_observations = self.num_obs_dict[self.obs_type]
-        self._num_actions = 6
+        self._num_actions = 7
         self._num_states = 0
 
         ## defining slow and fast targets ##
@@ -197,6 +198,7 @@ class UR10ReacherTask(ReacherTask):
             
         # new_pos = torch.full((n_reset_envs, 3),random.choice(target_poses) , device=self.device)
         new_pos = target_pose.repeat(n_reset_envs,1)
+        
         cur_mit_env = torch.tensor([self.current_target for x in range(n_reset_envs)], device=self.device)
         if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
             # Depends on your real robot setup
@@ -224,8 +226,8 @@ class UR10ReacherTask(ReacherTask):
             self.obs_buf[:, base+0:base+3] = self.goal_pos
             self.obs_buf[:, base+3:base+7] = self.goal_rot
             self.obs_buf[:, base+7:base+11] = quat_mul(self.object_rot, quat_conjugate(self.goal_rot))
-            self.obs_buf[:, base+11:base+17] = self.actions
-            self.obs_buf[:, base+17:base+18] = self.act_moving_average
+            self.obs_buf[:, base+11:base+18] = self.actions
+            self.obs_buf[:, base+18:base+19] = self.cur_goal_pos.unsqueeze(1)
 
     def send_joint_pos(self, joint_pos):
         self.real_world_ur10.send_joint_pos(joint_pos)
