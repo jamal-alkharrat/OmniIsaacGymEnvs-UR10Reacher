@@ -116,7 +116,7 @@ class ReacherTask(RLTask):
     def set_up_scene(self, scene: Scene) -> None:
         self._stage = get_current_stage()
         #add_reference_to_stage(assets_root_path + BACKGROUND_USD_PATH, BACKGROUND_STAGE_PATH)
-        self._assets_root_path = 'omniverse://localhost/Projects/J3soon/Isaac/2022.1'
+        self._assets_root_path = '/home/abi/Documents/J3soon/Isaac/2022.1'
         self.get_arm()
         self.get_object()
         self.get_goal()
