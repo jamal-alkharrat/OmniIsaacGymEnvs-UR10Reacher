@@ -43,7 +43,11 @@ from omni.isaac.core.utils.viewports import set_camera_view
 
 import numpy as np
 import torch
+import time
 
+
+from omniisaacgymenvs.robots.articulations.Box import Box
+from omniisaacgymenvs.robots.articulations.views.box_view import BoxView
 
 BACKGROUND_STAGE_PATH = "/background"
 BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
@@ -116,15 +120,20 @@ class ReacherTask(RLTask):
     def set_up_scene(self, scene: Scene) -> None:
         self._stage = get_current_stage()
         #add_reference_to_stage(assets_root_path + BACKGROUND_USD_PATH, BACKGROUND_STAGE_PATH)
-        self._assets_root_path = '/home/abi/Documents/J3soon/Isaac/2022.1'
+        self._assets_root_path = '/home/abi/Documents/ur_10_inst_box/Isaac/2022.1'
         self.get_arm()
         self.get_object()
+        self.get_box()
         self.get_goal()
 
         super().set_up_scene(scene)
 
         self._arms = self.get_arm_view(scene)
         scene.add(self._arms)
+
+        # self._box = self.get_box_view(scene)
+        # scene.add(self._box)
+        
         self._objects = RigidPrimView(
             prim_paths_expr="/World/envs/env_.*/object/object",
             name="object_view",
@@ -158,16 +167,26 @@ class ReacherTask(RLTask):
         pass
 
     @abstractmethod
+    def get_box(self):
+        pass
+
+    @abstractmethod
+    def get_box_view(self):
+        pass
+
+
+    @abstractmethod
     def get_observations(self):
         pass
 
     @abstractmethod
-    def get_reset_target_new_pos(self, n_reset_envs):
+    def get_reset_target_new_pos(self, n_reset_envs, priority_tensor, env_ids):
         pass
 
     @abstractmethod
     def send_joint_pos(self, joint_pos):
         pass
+
 
     def get_object(self):
         self.object_start_translation = torch.tensor([0.0, 0.0, 0.0], device=self.device)
@@ -183,7 +202,7 @@ class ReacherTask(RLTask):
         )
         self._sim_config.apply_articulation_settings("object", get_prim_at_path(obj.prim_path), self._sim_config.parse_actor_config("object"))
 
-    def get_goal(self):
+    def get_goal(self):  
         self.goal_displacement_tensor = torch.tensor([0.0, 0.0, 0.0], device=self.device)
         self.goal_start_translation = torch.tensor([0.0, 0.0, 0.0], device=self.device) + self.goal_displacement_tensor
         self.goal_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
@@ -208,6 +227,12 @@ class ReacherTask(RLTask):
         self.prev_targets = torch.zeros((self.num_envs, self.num_arm_dofs), dtype=torch.float, device=self.device)
         self.cur_targets = torch.zeros((self.num_envs, self.num_arm_dofs), dtype=torch.float, device=self.device)
         self.move_avg_env = torch.zeros((self.num_envs), dtype=torch.float, device=self.device)
+        #Define priority Tensor
+        self.priority = torch.zeros((self.num_envs, 4), dtype=torch.bool, device=self.device)
+        # Set the 1st point as the priority on every reset
+        self.priority[:,0] = True
+        
+
 
         dof_limits = self._dof_limits
         self.arm_dof_lower_limits, self.arm_dof_upper_limits = torch.t(dof_limits[0].to(self.device))
@@ -225,6 +250,7 @@ class ReacherTask(RLTask):
         # randomize all envs
         indices = torch.arange(self._num_envs, dtype=torch.int64, device=self._device)
         self.reset_idx(indices)
+
 
     def calculate_metrics(self):
         self.fall_dist = 0
@@ -318,14 +344,17 @@ class ReacherTask(RLTask):
         indices = env_ids.to(dtype=torch.int32)
         rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), 4), device=self.device)
 
-        new_pos, curr_pos = self.get_reset_target_new_pos(len(env_ids))
+        new_pos, curr_pos, target_points, new_pos_2, new_priority_tensor = self.get_reset_target_new_pos(len(env_ids), self.priority, env_ids)
         new_rot = randomize_rotation(rand_floats[:, 0], rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
         self.cur_goal_pos = torch.zeros(len(self.goal_pos),dtype=torch.long, device=self.device)
         self.goal_pos[env_ids] = new_pos
         self.goal_rot[env_ids] = new_rot
 
+        self.priority = new_priority_tensor
 
 
+        # Assign the points to a variable
+        self.target_ponts = target_points
         self.cur_goal_pos[env_ids] = curr_pos
         
 
