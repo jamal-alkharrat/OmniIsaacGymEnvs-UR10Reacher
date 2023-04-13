@@ -44,7 +44,6 @@ from omni.isaac.core.utils.viewports import set_camera_view
 import numpy as np
 import torch
 import time
-import os
 
 
 from omniisaacgymenvs.robots.articulations.Box import Box
@@ -52,8 +51,6 @@ from omniisaacgymenvs.robots.articulations.views.box_view import BoxView
 
 BACKGROUND_STAGE_PATH = "/background"
 BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
-cwd = os.getcwd()
-print("Current working directory:", cwd)
 #assets_root_path = nucleus.get_assets_root_path()
 
 class ReacherTask(RLTask):
