@@ -1,7 +1,7 @@
-*.pyc
-__pycache___
-__pycache__/
-/__pycache__/
+#*.pyc
+#__pycache___
+#__pycache__/
+#/__pycache__/
 runs
 omniisaacgymenvs.egg-info/
 checkpoints
