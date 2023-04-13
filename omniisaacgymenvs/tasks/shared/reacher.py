@@ -44,6 +44,7 @@ from omni.isaac.core.utils.viewports import set_camera_view
 import numpy as np
 import torch
 import time
+import os
 
 
 from omniisaacgymenvs.robots.articulations.Box import Box
@@ -51,7 +52,9 @@ from omniisaacgymenvs.robots.articulations.views.box_view import BoxView
 
 BACKGROUND_STAGE_PATH = "/background"
 BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
-assets_root_path = nucleus.get_assets_root_path()
+cwd = os.getcwd()
+print("Current working directory:", cwd)
+#assets_root_path = nucleus.get_assets_root_path()
 
 class ReacherTask(RLTask):
     def __init__(
@@ -230,10 +233,12 @@ class ReacherTask(RLTask):
         #Define priority Tensor
         self.priority = torch.zeros((self.num_envs, 4), dtype=torch.bool, device=self.device)
         # Set the 1st point as the priority on every reset
-        self.priority[:,0] = True
+        self.priority[:, 0] = True
+
         
-
-
+        
+        #start time of all envs
+        self.start_time = torch.tensor([time.perf_counter()], device= self.device).repeat(self.num_envs, 1)
         dof_limits = self._dof_limits
         self.arm_dof_lower_limits, self.arm_dof_upper_limits = torch.t(dof_limits[0].to(self.device))
 
@@ -262,7 +267,7 @@ class ReacherTask(RLTask):
             self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
             self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
             self.max_consecutive_successes, self.av_factor,
-            self.velocity_reward, self.cur_goal_pos, self.move_avg_env, #add current velocity and goal pos
+            self.velocity_reward, self.cur_goal_pos, self.move_avg_env, self.time_diff, self.priority #add current velocity and goal pos
         )
 
         self.extras['consecutive_successes'] = self.consecutive_successes.mean()
@@ -288,6 +293,8 @@ class ReacherTask(RLTask):
         object_pos = self.object_pos + self._env_pos
         object_rot = self.object_rot
         self._objects.set_world_poses(object_pos, object_rot)
+        self.time_diff = time.perf_counter() - self.start_time
+
 
         # if only goals need reset, then call set API
         if len(goal_env_ids) > 0 and len(env_ids) == 0:
@@ -295,6 +302,7 @@ class ReacherTask(RLTask):
         elif len(goal_env_ids) > 0:
             self.reset_target_pose(goal_env_ids)
         if len(env_ids) > 0:
+            self.start_time = torch.tensor([time.perf_counter()], device= self.device).repeat(self.num_envs, 1)
             self.reset_idx(env_ids)
 
         self.actions = actions.clone().to(self.device)
@@ -350,9 +358,14 @@ class ReacherTask(RLTask):
         self.goal_pos[env_ids] = new_pos
         self.goal_rot[env_ids] = new_rot
 
+        # Update priority tensor
         self.priority = new_priority_tensor
 
-
+        # Set reset time for resetting environments
+        for reset_env_id_tensor in env_ids:
+            reset_env_id_ints = reset_env_id_tensor.item()
+            self.start_time[reset_env_id_ints] = torch.tensor([time.perf_counter()], device=self.device)
+            
         # Assign the points to a variable
         self.target_ponts = target_points
         self.cur_goal_pos[env_ids] = curr_pos
@@ -417,7 +430,7 @@ def compute_arm_reward(
     actions, action_penalty_scale: float,
     success_tolerance: float, reach_goal_bonus: float, fall_dist: float,
     fall_penalty: float, max_consecutive_successes: int, av_factor: float,
-    velocity_reward: float, cur_goal_pos, mov_avg_env,
+    velocity_reward: float, cur_goal_pos, mov_avg_env, diff_time, priority_tensor
 ):
 
     goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
@@ -453,7 +466,7 @@ def compute_arm_reward(
     high_s_reshaped = high_s.squeeze((1))
     low_s_reshaped = low_s.squeeze((1))
 
-
+ 
 
     # first_indices = first_indices.reshape()
     moving_pos1_reward = torch.gather(high_s_reshaped, -1, indices_1_reshaped)
@@ -469,15 +482,56 @@ def compute_arm_reward(
     # new_val = high_s_reshaped[torch.arange(high_s_reshaped), first_indices]
     # print(new_val)
 
+    # Time Reward
+
+    time_reward = torch.zeros_like(dist_rew)
+
+    for  num, env_time  in enumerate(torch.cat((priority_tensor, diff_time), dim=1)):
+        for envt in env_time[0:-1]:
+           
+            if  env_time[-1].item() < 5 and env_time[-1].item() > 1:
+                time_reward[num] = 0.5
+            else:
+                time_reward[num] = -1.0
+    
+    # print(diff_time, bool(torch.abs(goal_dist) <= success_tolerance), time_reward)
+    #print(goal_dist.shape, diff_time.squeeze(1).shape)
+
+
+    # Reward for reaching the goal position 
+
+    gol_rew = torch.zeros_like(goal_dist)
+
+    for num, env in enumerate(goal_dist):
+        if env < 0.1:
+            gol_rew[num] = 1
+        elif env < 0.05:
+            gol_rew[num] = 3
+        else:
+            gol_rew[num] = -1
+
+    print(gol_rew)
+
+
+    goal_reward = torch.where(torch.abs(goal_dist) <= success_tolerance, 1, -1)
+
+
+
+
 
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
-    reward =  velocity_reward + dist_rew + action_penalty * action_penalty_scale    
+    reward =  time_reward + gol_rew + dist_rew + action_penalty * action_penalty_scale    
+
+    # print(f"Time reward: {time_reward}") #, goal dist:  {goal_dist}")
 
     # Find out which envs hit the goal and update successes count
-    goal_resets = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf), reset_goal_buf)
+    goal_resets = torch.where((torch.abs(diff_time.squeeze(1)) > 7.0) & (torch.abs(goal_dist) <= success_tolerance), torch.ones_like(reset_goal_buf), reset_goal_buf)
     successes = successes + goal_resets
 
+
     # Success bonus: orientation is within `success_tolerance` of goal orientation
+    # for num, env_diff in enumerate(diff_time):
+    #     if env_diff.item() < 5 and env_diff.item() > 1:  
     reward = torch.where(goal_resets == 1, reward + reach_goal_bonus, reward)
 
     resets = reset_buf

@@ -64,7 +64,7 @@ class UR10ReacherTask(ReacherTask):
                 "Unknown type of observations!\nobservationType should be one of: [full]")
         print("Obs type:", self.obs_type)
         self.num_obs_dict = {
-            "full": 31,
+            "full": 35,
             # 6: UR10 joints position (action space)
             # 6: UR10 joints velocity
             # 3: goal position
@@ -72,6 +72,8 @@ class UR10ReacherTask(ReacherTask):
             # 4: goal relative rotation
             # 6: previous action
             # 7: previous goal position 
+            # 8: priority tensor
+            # 9: Time difference tensor
         }
 
         self.object_scale = torch.tensor([1.0] * 3)
@@ -196,9 +198,9 @@ class UR10ReacherTask(ReacherTask):
 
     def get_reset_target_new_pos(self, n_reset_envs, priority_tensor, reset_envs):
         # Randomly generate goal positions, although the resulting goal may still not be reachable.
-        # new_pos = torch_rand_float(-1, 1, (n_reset_envs, 3), device=self.device)
+        new_pos = torch_rand_float(-1, 1, (n_reset_envs, 3), device=self.device)
         # print(new_pos)
-        # print(new_pos.shape)
+        print(priority_tensor)
         target_poses = [[0.143423, -0.13423, 0.343423],[0.943423, -0.13423, 0.343423], [0.943423, -0.93423, 0.343423],[0.143423, -0.93423, 0.343423]] #,[-0.143423, -0.13423, 0.343423], [-0.443423, -0.13423, 0.343423]
         
         # Slow Target, Fast Target 
@@ -214,7 +216,7 @@ class UR10ReacherTask(ReacherTask):
         self.fourth_target = torch.tensor([0.143423, -0.93423, 0.343423], device=self.device)
         new_pos_2 = torch.zeros((n_reset_envs, 3), device=self.device)
 
-        target_points = [self.first_target, self.second_target, self.fourth_target, self.third_target]
+        target_points = [self.first_target, self.second_target, self.third_target, self.fourth_target]
         priority_list = []
     
 
@@ -257,7 +259,7 @@ class UR10ReacherTask(ReacherTask):
 
 
 
-        print(f"Reset envs : {n_reset_envs}, priority_tensor : {priority_tensor}, new_priority : {new_priority_tensor}  ")
+        # print(f"Reset envs : {n_reset_envs}, priority_tensor : {priority_tensor}, new_priority : {new_priority_tensor}  ")
 
 
         
@@ -273,8 +275,8 @@ class UR10ReacherTask(ReacherTask):
             self.current_target = 3
 
             
-        # new_pos = torch.full((n_reset_envs, 3),random.choice(target_poses) , device=self.device)
-        new_pos = target_pose.repeat(n_reset_envs,1)
+        #new_pos = torch.full((n_reset_envs, 3),random.choice(target_poses) , device=self.device)
+        #new_pos = target_pose.repeat(n_reset_envs,1)
         #print(new_pos)
         
         cur_mit_env = torch.tensor([self.current_target for x in range(n_reset_envs)], device=self.device)
@@ -320,6 +322,9 @@ class UR10ReacherTask(ReacherTask):
             self.obs_buf[:, base+7:base+11] = quat_mul(self.object_rot, quat_conjugate(self.goal_rot))
             self.obs_buf[:, base+11:base+18] = self.actions
             self.obs_buf[:, base+18:base+19] = self.cur_goal_pos.unsqueeze(1)
+            self.obs_buf[:, base+19:base+23] = self.priority
+            self.obs_buf[:, base+23:base+24] = self.time_diff
+
 
     def send_joint_pos(self, joint_pos):
         self.real_world_ur10.send_joint_pos(joint_pos)
