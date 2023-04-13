@@ -114,7 +114,7 @@ def parse_hydra_configs(cfg: DictConfig):
         run_name = f"{cfg.wandb_name}_{time_str}"
 
         wandb.init(
-            project=cfg.wandb_project,
+            project="test",
             group=cfg.wandb_group,
             entity=cfg.wandb_entity,
             config=cfg_dict,
