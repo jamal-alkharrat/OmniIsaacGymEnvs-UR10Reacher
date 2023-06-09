@@ -32,18 +32,14 @@ from omniisaacgymenvs.utils.config_utils.sim_config import SimConfig
 from omniisaacgymenvs.tasks.shared.reacher import ReacherTask
 from omniisaacgymenvs.robots.articulations.views.ur10_view import UR10View
 from omniisaacgymenvs.robots.articulations.ur10 import UR10
-from omniisaacgymenvs.robots.articulations.views.box_view import BoxView
-from omniisaacgymenvs.robots.articulations.Box import Box
 
 from omni.isaac.core.utils.prims import get_prim_at_path
 from omni.isaac.core.utils.torch import *
 from omni.isaac.gym.vec_env import VecEnvBase
 
-import random
 import numpy as np
 import torch
 import math
-
 
 
 class UR10ReacherTask(ReacherTask):
@@ -64,33 +60,21 @@ class UR10ReacherTask(ReacherTask):
                 "Unknown type of observations!\nobservationType should be one of: [full]")
         print("Obs type:", self.obs_type)
         self.num_obs_dict = {
-            "full": 35,
+            "full": 29,
             # 6: UR10 joints position (action space)
             # 6: UR10 joints velocity
             # 3: goal position
             # 4: goal rotation
             # 4: goal relative rotation
             # 6: previous action
-            # 7: previous goal position 
-            # 8: priority tensor
-            # 9: Time difference tensor
         }
 
         self.object_scale = torch.tensor([1.0] * 3)
         self.goal_scale = torch.tensor([2.0] * 3)
 
         self._num_observations = self.num_obs_dict[self.obs_type]
-        self._num_actions = 7
+        self._num_actions = 6
         self._num_states = 0
-
-        ## defining slow and fast targets ##
-
-        self.slow_target = None
-        self.fast_target = None
-        self.current_target = None
-
-        ##########
-
 
         pi = math.pi
         if self._task_cfg['safety']['enabled']:
@@ -111,15 +95,13 @@ class UR10ReacherTask(ReacherTask):
                 [-pi + pi/8, pi - pi/8], # [-2*pi, 2*pi],
                 [-pi, 0],                # [-2*pi, 2*pi],
                 [-pi, pi],               # [-2*pi, 2*pi],
-                [-2*pi, 2*pi],           # [-2*pi, 2*pi],
+                [-2*pi, 2*pi]           # [-2*pi, 2*pi],
             ]], dtype=torch.float32, device=self._cfg["sim_device"])
             # The last action space cannot be [0, 0]
             # It will introduce the following error:
             # ValueError: Expected parameter loc (Tensor of shape (2048, 6)) of distribution Normal(loc: torch.Size([2048, 6]), scale: torch.Size([2048, 6])) to satisfy the constraint Real(), but found invalid values
 
         ReacherTask.__init__(self, name=name, env=env)
-
-  
 
         # Setup Sim2Real
         sim2real_config = self._task_cfg['sim2real']
@@ -130,40 +112,25 @@ class UR10ReacherTask(ReacherTask):
                 sim2real_config['verbose']
             )
         return
-    
-
-
-
-
 
     def get_num_dof(self):
         return self._arms.num_dof
 
+    # import the robot arm ur10 --> ur10.py
     def get_arm(self):
-        ur10 = UR10(prim_path=self.default_zero_env_path + "/ur10", name="UR10")
+        ur10 = UR10(prim_path=self.default_zero_env_path + "/ur10", name="UR10", gripper_usd=None, attach_gripper=True)
         self._sim_config.apply_articulation_settings(
             "ur10",
             get_prim_at_path(ur10.prim_path),
             self._sim_config.parse_actor_config("ur10"),
         )
+        return ur10
+        
 
     def get_arm_view(self, scene):
         arm_view = UR10View(prim_paths_expr="/World/envs/.*/ur10", name="ur10_view")
         scene.add(arm_view._end_effectors)
         return arm_view
-    
-    def get_box(self):
-        box = Box(prim_path=self.default_zero_env_path + "/box", name="BOX")
-        self._sim_config.apply_articulation_settings(
-            "box",
-            get_prim_at_path(box.prim_path),
-            self._sim_config.parse_actor_config("box"),
-        )
-    
-    def get_box_view(self, scene):
-        box_view = BoxView(prim_paths_expr="/World/envs/.*/box", name="box_view")
-        scene.add(box_view._col)
-        return box_view
 
     def get_object_displacement_tensor(self):
         return torch.tensor([0.0, 0.05, 0.0], device=self.device).repeat((self.num_envs, 1))
@@ -179,16 +146,6 @@ class UR10ReacherTask(ReacherTask):
         else:
             print("Unkown observations type!")
 
-        ### Verbose ###
-        
-        verb_config = self._task_cfg['verbose']
-        assert verb_config
-        if verb_config['enabled']:
-            print("testing!!!!!!!")
-            print("action moving average = %s ", self.act_moving_average)
-
-        #########  
-
         observations = {
             self._arms.name: {
                 "obs_buf": self.obs_buf
@@ -196,91 +153,11 @@ class UR10ReacherTask(ReacherTask):
         }
         return observations
 
-    def get_reset_target_new_pos(self, n_reset_envs, priority_tensor, reset_envs):
+    def get_reset_target_new_pos(self, n_reset_envs):
         # Randomly generate goal positions, although the resulting goal may still not be reachable.
+        # new_pos = torch_rand_float(-1, 1, (n_reset_envs, 3), device=self.device)
+        # Non random implementation
         new_pos = torch_rand_float(-1, 1, (n_reset_envs, 3), device=self.device)
-        # print(new_pos)
-        print(priority_tensor)
-        target_poses = [[0.143423, -0.13423, 0.343423],[0.943423, -0.13423, 0.343423], [0.943423, -0.93423, 0.343423],[0.143423, -0.93423, 0.343423]] #,[-0.143423, -0.13423, 0.343423], [-0.443423, -0.13423, 0.343423]
-        
-        # Slow Target, Fast Target 
-
-        self.slow_target = torch.tensor([0.443423, -0.13423, 0.343423], device=self.device)
-        self.fast_target = torch.tensor([-0.543423, -0.13423, 0.343423], device=self.device)
-
-        # 4 targets 
-
-        self.first_target = torch.tensor([0.143423, -0.13423, 0.343423], device=self.device)
-        self.second_target = torch.tensor([0.943423, -0.13423, 0.343423], device=self.device)
-        self.third_target = torch.tensor([0.943423, -0.93423, 0.343423], device=self.device)
-        self.fourth_target = torch.tensor([0.143423, -0.93423, 0.343423], device=self.device)
-        new_pos_2 = torch.zeros((n_reset_envs, 3), device=self.device)
-
-        target_points = [self.first_target, self.second_target, self.third_target, self.fourth_target]
-        priority_list = []
-    
-
-        # sorting priority tensor with reset tensor
-        for env_id_tensor in reset_envs:
-            env_int_id = env_id_tensor.item()
-            priority_list.append(priority_tensor[env_int_id])
-        
-        #print(priority_list)
-        priority_n_reset = torch.stack((priority_list), dim=0)
-
-        for row_num,row in enumerate(priority_n_reset):
-            for column_num,column in enumerate(row):
-                if column==True:
-                    #print(new_pos_2[row_num], target_points[column_num])
-                    new_pos_2[row_num] = target_points[column_num]
-
-        # Change the prority_tensor for the next reset
-
-        new_priority_tensor = priority_tensor.clone()
-
-        true_tensor = torch.tensor([True], device = self.device)
-        false_tensor = torch.tensor([False], device = self.device)
-
-
-        for env_idtensor in reset_envs:
-            env_int = env_idtensor.item()
-            for num, env_bool in enumerate(new_priority_tensor[env_int]):
-                #print(env_bool, new_priority_tensor[env_int, num])        
-                if env_bool == true_tensor and  new_priority_tensor[env_int,num] != new_priority_tensor[env_int, -1]:
-                    new_priority_tensor[env_int, num] = false_tensor
-                    new_priority_tensor[env_int, num+1] = true_tensor
-                    break
-                elif env_bool == true_tensor and  new_priority_tensor[env_int,num] == new_priority_tensor[env_int,-1]:
-                    new_priority_tensor[env_int, num] = false_tensor
-                    new_priority_tensor[env_int, 0] = true_tensor
-                    break
-
-            
-
-
-
-        # print(f"Reset envs : {n_reset_envs}, priority_tensor : {priority_tensor}, new_priority : {new_priority_tensor}  ")
-
-
-        
-        target_pose = torch.tensor(random.choice(target_poses), device=self.device)
-
-        # Current target for speed changes
-
-        if target_pose[0] == self.slow_target[0]:
-            self.current_target = 1
-        elif target_pose[0] == self.fast_target[0]: 
-            self.current_target = 2
-        else:
-            self.current_target = 3
-
-            
-        #new_pos = torch.full((n_reset_envs, 3),random.choice(target_poses) , device=self.device)
-        #new_pos = target_pose.repeat(n_reset_envs,1)
-        #print(new_pos)
-        
-        cur_mit_env = torch.tensor([self.current_target for x in range(n_reset_envs)], device=self.device)
-
         if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
             # Depends on your real robot setup
             new_pos[:, 0] = torch.abs(new_pos[:, 0] * 0.1) + 0.35
@@ -293,21 +170,8 @@ class UR10ReacherTask(ReacherTask):
         if self._task_cfg['safety']['enabled']:
             new_pos[:, 0] = torch.abs(new_pos[:, 0]) / 1.25
             new_pos[:, 1] = torch.abs(new_pos[:, 1]) / 1.25
+        return new_pos
 
-        if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
-            # Depends on your real robot setup
-            new_pos_2[:, 0] = torch.abs(new_pos_2[:, 0] * 0.1) + 0.35
-            new_pos_2[:, 1] = torch.abs(new_pos_2[:, 1] * 0.1) + 0.35
-            new_pos_2[:, 2] = torch.abs(new_pos_2[:, 2] * 0.5) + 0.3
-        else:
-            new_pos_2[:, 0] = new_pos_2[:, 0] * 0.4 + 0.5 * torch.sign(new_pos_2[:, 0])
-            new_pos_2[:, 1] = new_pos_2[:, 1] * 0.4 + 0.5 * torch.sign(new_pos_2[:, 1])
-            new_pos_2[:, 2] = torch.abs(new_pos_2[:, 2] * 0.8) + 0.1
-        if self._task_cfg['safety']['enabled']:
-            new_pos_2[:, 0] = torch.abs(new_pos_2[:, 0]) / 1.25
-            new_pos_2[:, 1] = torch.abs(new_pos_2[:, 1]) / 1.25
-        return new_pos_2, cur_mit_env, target_points, new_pos, new_priority_tensor
-          
     def compute_full_observations(self, no_vel=False):
         if no_vel:
             raise NotImplementedError()
@@ -320,11 +184,7 @@ class UR10ReacherTask(ReacherTask):
             self.obs_buf[:, base+0:base+3] = self.goal_pos
             self.obs_buf[:, base+3:base+7] = self.goal_rot
             self.obs_buf[:, base+7:base+11] = quat_mul(self.object_rot, quat_conjugate(self.goal_rot))
-            self.obs_buf[:, base+11:base+18] = self.actions
-            self.obs_buf[:, base+18:base+19] = self.cur_goal_pos.unsqueeze(1)
-            self.obs_buf[:, base+19:base+23] = self.priority
-            self.obs_buf[:, base+23:base+24] = self.time_diff
-
+            self.obs_buf[:, base+11:base+17] = self.actions
 
     def send_joint_pos(self, joint_pos):
         self.real_world_ur10.send_joint_pos(joint_pos)

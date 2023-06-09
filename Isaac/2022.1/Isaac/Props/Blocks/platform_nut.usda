@@ -1,0 +1,98 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary cameraSettings = {
+            dictionary Front = {
+                double3 position = (50000.000000000015, -1.1102230246251565e-11, 0)
+                double radius = 500
+            }
+            dictionary Perspective = {
+                double3 position = (1.5074020840919358, 1.490344290567115, 1.498918053103949)
+                double3 target = (0.009645337619862193, 0.003055930011051089, -0.01269170166566358)
+            }
+            dictionary Right = {
+                double3 position = (0, -50000, -1.1102230246251565e-11)
+                double radius = 500
+            }
+            dictionary Top = {
+                double3 position = (0, 0, 50000)
+                double radius = 500
+            }
+            string boundCamera = "/OmniverseKit_Persp"
+        }
+        dictionary omni_layer = {
+            dictionary muteness = {
+            }
+        }
+        dictionary renderSettings = {
+        }
+    }
+    defaultPrim = "World"
+    endTimeCode = 100
+    metersPerUnit = 1
+    startTimeCode = 0
+    timeCodesPerSecond = 24
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def DistantLight "defaultLight" (
+        prepend apiSchemas = ["ShapingAPI"]
+    )
+    {
+        float angle = 1
+        float intensity = 3000
+        float shaping:cone:angle = 180
+        float shaping:cone:softness
+        float shaping:focus
+        color3f shaping:focusTint
+        asset shaping:ies:file
+        quatd xformOp:orient = (0.6532814824381883, 0.2705980500730985, 0.27059805007309845, 0.6532814824381882)
+        double3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+
+    def Cube "Cube" (
+        prepend apiSchemas = ["PhysicsCollisionAPI", "PhysxCollisionAPI"]
+    )
+    {
+        float3[] extent = [(-0.05, -0.05, -0.05), (0.05, 0.05, 0.05)]
+        rel material:binding = </World/Looks/Aluminum_Anodized> (
+            bindMaterialAs = "strongerThanDescendants"
+        )
+        bool physics:collisionEnabled = 1
+        bool primvars:doNotCastShadows = 0
+        double size = 0.10000000149011612
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (2.0281054973602295, 2.6751863956451416, 0.486154168844223)
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+
+    def "Looks"
+    {
+        def Material "Aluminum_Anodized"
+        {
+            token outputs:mdl:displacement.connect = </World/Looks/Aluminum_Anodized/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </World/Looks/Aluminum_Anodized/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </World/Looks/Aluminum_Anodized/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @http://omniverse-content-production.s3-us-west-2.amazonaws.com/Materials/Base/Metals/Aluminum_Anodized.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "Aluminum_Anodized"
+                token outputs:out
+            }
+        }
+    }
+}
+
+over "Render" (
+    hide_in_stage_window = true
+)
+{
+}
+
