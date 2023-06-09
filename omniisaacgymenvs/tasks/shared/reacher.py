@@ -109,7 +109,7 @@ class ReacherTask(RLTask):
 
     def set_up_scene(self, scene: Scene) -> None:
         self._stage = get_current_stage()
-        self._assets_root_path = '/root/RLrepo/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1'
+        self._assets_root_path = '/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1'
         self._ur10 =scene.add(self.get_arm())
 
         self.get_object()

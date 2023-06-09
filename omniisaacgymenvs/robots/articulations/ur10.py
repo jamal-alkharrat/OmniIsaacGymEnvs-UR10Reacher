@@ -69,7 +69,7 @@ class UR10(Robot):
             assets_root_path = get_assets_root_path()
             if assets_root_path is None:
                 carb.log_error("Could not find Isaac Sim assets folder")
-            self._usd_path = "/root/RLrepo/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1/Isaac/Robots/UR10/ur10_short_suction_instanceable.usd" #omniverse://localhost/Projects/J3soon/Isaac/2022.1/Isaac/Robots/UR10/ur10_instanceable.usd
+            self._usd_path = "/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1/Isaac/Robots/UR10/ur10_short_suction_instanceable.usd" #omniverse://localhost/Projects/J3soon/Isaac/2022.1/Isaac/Robots/UR10/ur10_instanceable.usd
         
         ####################
         if self._end_effector_prim_name is None: #default --> Attaches the gripper
