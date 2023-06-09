@@ -4,7 +4,7 @@ task:
   env:
     numEnvs: ${resolve_default:512,${...num_envs}}
     envSpacing: 3
-    episodeLength: 600
+    episodeLength: 300
     clipObservations: 5.0
     clipActions: 1.0
     useRelativeControl: false
@@ -27,7 +27,7 @@ task:
     rotRewardScale: 1.0
     rotEps: 0.1
     actionPenaltyScale: -0.0002
-    reachGoalBonus: 250
+    reachGoalBonus: 20
     velObsScale: 0.2
     observationType: full
     successTolerance: 0.1
@@ -71,7 +71,7 @@ task:
     ur10:
       override_usd_defaults: false
       fixed_base: false
-      enable_self_collisions: false
+      enable_self_collisions: true
     object:
       override_usd_defaults: false
       fixed_base: true
@@ -156,16 +156,16 @@ train:
       schedule_type: standard
       kl_threshold: 0.008
       score_to_win: 100000
-      max_epochs: ${resolve_default:5000,${....max_iterations}}
-      save_best_after: 100
-      save_frequency: 200
+      max_epochs: ${resolve_default:1000,${....max_iterations}}
+      save_best_after: 10
+      save_frequency: 100
       print_stats: true
       grad_norm: 1.0
       entropy_coef: 0.0
       truncate_grads: true
       e_clip: 0.2
       horizon_length: 64
-      minibatch_size: 32768
+      minibatch_size: 12800
       mini_epochs: 5
       critic_coef: 4
       clip_value: true
@@ -177,7 +177,7 @@ train:
         print_stats: true
 task_name: ${task.name}
 experiment: ''
-num_envs: ''
+num_envs: 2
 seed: 42
 torch_deterministic: false
 max_iterations: ''
@@ -188,8 +188,8 @@ device_id: 0
 rl_device: cuda:0
 num_threads: 4
 solver_type: 1
-test: false
-checkpoint: ''
+test: true
+checkpoint: /home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/runs/UR10Reacher/nn/UR10Reacher.pth
 headless: false
 wandb_activate: false
 wandb_group: ''

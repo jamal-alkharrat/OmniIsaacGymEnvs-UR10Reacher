@@ -394,7 +394,7 @@ class ReacherTask(RLTask):
             end_effector_pos, # end_effector_rot, # TODO: use end effector rotation
             self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
             self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
-            self.max_consecutive_successes, self.av_factor, self.paltform_pos,
+            self.max_consecutive_successes, self.av_factor,
         )
         #print(self.rew_buf) # print reward buffer
         self.extras['consecutive_successes'] = self.consecutive_successes.mean()
