@@ -72,14 +72,18 @@ def create_ur10_mesh(asset_usd_path, ur10_mesh_usd_path):
         ['/ur10/wrist_2_link/cylinder', 'geoms_xform'],
         ['/ur10/wrist_2_link/cylinder_0', 'geoms_xform'],
         ['/ur10/wrist_2_link/ur10_wrist_2', 'geoms_xform'],
+        ['/ur10/wrist_2_link/Sensor', 'geoms_xform'],
+        ['/ur10/wrist_2_link/Sensor/Contact_Sensor', 'geoms_xform'],
         # wrist_3_link
         ['/ur10/wrist_3_link/cylinder', 'geoms_xform'],
+        #['/ur10/wrist_3_link/Contact_Sensor', 'geoms_xform'],
         ['/ur10/wrist_3_link/ur10_wrist_3', 'geoms_xform'],
     ] # [prim_path, parent_xform_name]
     for task in reparent_tasks:
         prim_path, parent_xform_name = task
         old_parent_path = '/'.join(prim_path.split('/')[:-1])
         new_parent_path = f'{old_parent_path}/{parent_xform_name}'
+        print(new_parent_path)
         UsdGeom.Xform.Define(stage, new_parent_path)
         edits.Add(Sdf.NamespaceEdit.Reparent(prim_path, new_parent_path, -1))
     stage.GetRootLayer().Apply(edits)
@@ -93,13 +97,14 @@ def create_ur10_instanceable(ur10_mesh_usd_path, ur10_instanceable_usd_path):
     # Set up references and instanceables
     for prim in stage.Traverse():
         if prim.GetTypeName() != 'Xform':
+            ref.ClearReferences()
             continue
         # Add reference to visuals_xform, collisions_xform, geoms_xform, and make them instanceable
         path = str(prim.GetPath())
-        if path.endswith('visuals_xform') or path.endswith('collisions_xform') or path.endswith('geoms_xform'):
+        if path.endswith('visuals_xform') or path.endswith('collisions_xform') or path.endswith('geoms_xform') or path.endswith('IsaacContactSensor'):
             ref = prim.GetReferences()
             ref.ClearReferences()
-            ref.AddReference('./ur10_mesh.usd', path)
+            ref.AddReference('./ur10_contact_mesh.usd', path)
             prim.SetInstanceable(True)
     # Save to file
     omni.usd.get_context().save_stage()
@@ -126,13 +131,13 @@ def create_block_indicator():
     omni.usd.get_context().save_stage()
 
 if __name__ == '__main__':
-    asset_dir_usd_path = 'omniverse://localhost/NVIDIA/Assets/Isaac/2022.1/Isaac/Robots/UR10'
-    ur10_dir_usd_path = 'omniverse://localhost/Projects/J3soon/Isaac/2022.1/Isaac/Robots/UR10'
-    ur10_usd_path = 'omniverse://localhost/Projects/J3soon/Isaac/2022.1/Isaac/Robots/UR10/ur10.usd'
-    ur10_mesh_usd_path = 'omniverse://localhost/Projects/J3soon/Isaac/2022.1/Isaac/Robots/UR10/ur10_mesh.usd'
-    ur10_instanceable_usd_path = 'omniverse://localhost/Projects/J3soon/Isaac/2022.1/Isaac/Robots/UR10/ur10_instanceable.usd'
+    asset_dir_usd_path = '/home/willi/Documents/Robots/UR10'
+    ur10_dir_usd_path = '/home/willi/Documents/Robots/UR10'
+    ur10_usd_path = '/home/willi/Documents/Robots/UR10/ur10_with_contact_sensor.usd'
+    ur10_mesh_usd_path = '/home/willi/Documents/Robots/UR10/ur10_contact_mesh.usd'
+    ur10_instanceable_usd_path = '/home/willi/Documents/instantiable_items/ur10_with_sensor_instanceable.usd'
     create_ur10(asset_dir_usd_path, ur10_dir_usd_path)
     create_ur10_mesh(ur10_usd_path, ur10_mesh_usd_path)
     create_ur10_instanceable(ur10_mesh_usd_path, ur10_instanceable_usd_path)
-    create_block_indicator()
+    #create_block_indicator()
     print("Done!")

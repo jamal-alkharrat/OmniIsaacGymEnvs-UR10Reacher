@@ -38,39 +38,10 @@ from omni.isaac.core.utils.torch import *
 # `scale` maps [-1, 1] to [L, U]; `unscale` maps [L, U] to [-1, 1]
 from omni.isaac.core.utils.torch import scale, unscale
 from omni.isaac.gym.vec_env import VecEnvBase
-from omni.isaac.core.utils import nucleus
-from omni.isaac.core.utils.viewports import set_camera_view
 
 import numpy as np
 import torch
 
-import omni.kit.commands
-from pxr import UsdGeom, Gf
-from omni.isaac.isaac_sensor import _isaac_sensor
-from copy import copy
-from enum import Enum
-
-class UR10_events(Enum):
-    START = 0
-    GOAL_REACHED = 1
-    ATTACHED = 2
-    DETACHED = 3
-    TIMEOUT = 4
-    STOP = 5
-    
-    NONE = 6
-
-class UR10_states(Enum):
-    STANDBY=0
-    PICKING=1
-    ATTACH=2
-    PLACING=3
-    DETACH=4
-
-
-BACKGROUND_STAGE_PATH = "/background"
-BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
-assets_root_path = nucleus.get_assets_root_path()
 
 class ReacherTask(RLTask):
     def __init__(
@@ -120,9 +91,6 @@ class ReacherTask(RLTask):
         self.y_unit_tensor = torch.tensor([0, 1, 0], dtype=torch.float, device=self.device).repeat((self.num_envs, 1))
         self.z_unit_tensor = torch.tensor([0, 0, 1], dtype=torch.float, device=self.device).repeat((self.num_envs, 1))
 
-        self.goal_position = torch.tensor([0,0,1.0],  device=self.device)
-        
-
         # Indicates which environments should be reset
         self.reset_goal_buf = self.reset_buf.clone()
         self.successes = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -131,59 +99,17 @@ class ReacherTask(RLTask):
         self.av_factor = torch.tensor(self.av_factor, dtype=torch.float, device=self.device)
         self.total_successes = 0
         self.total_resets = 0
-        self.paltform_pos=torch.tensor([0.5,0.6,0.3],  device=self.device)
-        
-        #Sensor
-        self._cs = _isaac_sensor.acquire_contact_sensor_interface()
-        
-        # #Short Gripper
-
-        # self._is_moving = False
-
-        # self.sm= {}
-        # for s in UR10_states:
-        #     self.sm[s] = {}
-        #     for e in UR10_events:
-        #         self.sm[s][e] = self._empty
-        #         self.thresh[s] = 0
-
-        # self.sm[UR10_states.STANDBY][UR10_events.GOAL_REACHED] = self._standby_start()
-        # self.sm[UR10_states.STANDBY][UR10_events.GOAL_REACHED] = self._standby_goal_reached
-        # self.thresh[UR10_states.STANDBY] = 3
-
-        # self.sm[UR10_states.PICKING][UR10_events.GOAL_REACHED] = self._picking_goal_reached
-        # self.sm[UR10_states.PICKING][UR10_events.NONE] = self._picking_no_event
-        # self.thresh[UR10_states.PICKING] = 1
-
-        # #self.sm[UR10_states.FLIPPING][UR10_events.GOAL_REACHED] = self._flipping_goal_reached
-        # #self.thresh[UR10_states.FLIPPING] = 2
-
-        # self.sm[UR10_states.PLACING][UR10_events.GOAL_REACHED] = self._placing_goal_reached
-        # self.thresh[UR10_states.PLACING] = 0
-
-        # self.sm[UR10_states.ATTACH][UR10_events.GOAL_REACHED] = self._attach_goal_reached
-        # self.sm[UR10_states.ATTACH][UR10_events.ATTACHED] = self._attach_attached
-        # self.thresh[UR10_states.ATTACH] = 0
-
-        # self.sm[UR10_states.DETACH][UR10_events.GOAL_REACHED] = self._detach_goal_reached
-        # self.sm[UR10_states.DETACH][UR10_events.DETACHED] = self._detach_detached
-        # self.thresh[UR10_states.DETACH] = 0
-
-        # self.current_state = UR10_states.STANDBY
-        # self.previous_state = -1
-        # self._physx_query_interface = omni.physx.get_physx_scene_query_interface()
-
-
         return
 
     def set_up_scene(self, scene: Scene) -> None:
         self._stage = get_current_stage()
-        #self._assets_root_path = 'omniverse://localhost/Projects/J3soon/Isaac/2022.1'
-        self._assets_root_path = '/home/willi/Dokumente/ur_10_inst_box_zip/ur_10_inst_box/Isaac/2022.1'
+        self._assets_root_path = '/root/RLrepo/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1'
         self._ur10 =scene.add(self.get_arm())
+
         self.get_object()
         self.get_goal()
         self.get_platform()
+        self.get_platform2()
 
         super().set_up_scene(scene)
 
@@ -213,13 +139,6 @@ class ReacherTask(RLTask):
         )
         scene.add(self._goals)
 
-        # set default camera viewport position and target
-        self.set_initial_camera_params()
-
-    def set_initial_camera_params(self, camera_position=[3, 3, 2], camera_target=[0, 0, 0]):
-        set_camera_view(eye=camera_position, target=camera_target, camera_prim_path="/OmniverseKit_Persp")
-
-
     @abstractmethod
     def get_num_dof(self):
         pass
@@ -244,36 +163,8 @@ class ReacherTask(RLTask):
     def send_joint_pos(self, joint_pos):
         pass
 
-    def get_platform(self):
-        self.platform_position = self.paltform_pos
-        self.platform_scale = torch.tensor([(0.3, 0.4, 0.03)], device=self.device)
-        self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/platform_instanceable_help.usd"
-        add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
-        platform = XFormPrim(
-            prim_path=self.default_zero_env_path + "/platform/platform/Cube",
-            name="platform",
-            translation=self.platform_position,
-           scale=self.platform_scale,
-            visible=True,
-
-        )
-        self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
-        #result, sensor = omni.kit.commands.execute(
-        #    "IsaacSensorCreateContactSensor",
-        #    path="/sensor",
-        #    parent=self.default_zero_env_path + "/platform",
-        #    min_threshold=0,
-        #    max_threshold=10000000,
-        #    color=(1, 0, 0, 0),
-        #    radius=0.12,
-        #    sensor_period=-1,
-        #    translation=self.paltform_pos,
-         #   visualize=True,)
-
-        #self._events = omni.usd.get_context().get_stage_event_stream()
-
     def get_object(self):
-        self.object_start_translation = torch.tensor([0.2, 0.2, 0.1], device=self.device)
+        self.object_start_translation = torch.tensor([0.0, 0.0, 0.0], device=self.device)
         self.object_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/object")
@@ -287,8 +178,8 @@ class ReacherTask(RLTask):
         self._sim_config.apply_articulation_settings("object", get_prim_at_path(obj.prim_path), self._sim_config.parse_actor_config("object"))
 
     def get_goal(self):
-        self.goal_displacement_tensor = torch.tensor([0, 0, 0.07], device=self.device)
-        self.goal_start_translation = torch.tensor([0.5,0.6,0.3], device=self.device) + self.goal_displacement_tensor
+        self.goal_displacement_tensor = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+        self.goal_start_translation = torch.tensor([0.0, 0.0, 0.0], device=self.device) + self.goal_displacement_tensor
         self.goal_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
 
         self.goal_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
@@ -302,35 +193,35 @@ class ReacherTask(RLTask):
         )
         self._sim_config.apply_articulation_settings("goal", get_prim_at_path(goal.prim_path), self._sim_config.parse_actor_config("goal_object"))
         
-    # def get_platform(self):
-    #     self.platform_position = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-    #     self.platform_scale = torch.tensor([(3, 4, 0.3)], device=self.device)
-    #     self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
-    #     add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
-    #     platform = XFormPrim(
-    #     prim_path=self.default_zero_env_path + "/platform/pp/Cube",
-    #     name="platform",
-    #     translation=self.platform_position,
-    #     scale=self.platform_scale,
-    #     visible=True,
-    #     )
-    #     print('Path to help:' + self.default_zero_env_path)
-    #     self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
+    def get_platform(self):
+        self.platform_position = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+        self.platform_scale = torch.tensor([(3, 4, 0.3)], device=self.device)
+        self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
+        add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
+        platform = XFormPrim(
+        prim_path=self.default_zero_env_path + "/platform/pp/Cube",
+        name="platform",
+        translation=self.platform_position,
+        scale=self.platform_scale,
+        visible=True,
+        )
+        print('Path to help:' + self.default_zero_env_path)
+        self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
 
-    # def get_platform2(self):
-    #     self.platform_position = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-    #     self.platform_scale = torch.tensor([(1.5, 2, 0.3)], device=self.device)
-    #     self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
-    #     add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform2")
-    #     platform2 = XFormPrim(
-    #     prim_path=self.default_zero_env_path + "/platform2/pp/Cube",
-    #     name="platform2",
-    #     translation=self.platform_position,
-    #     scale=self.platform_scale,
-    #     visible=True,
-    #     )
-    #     print('Path to help:' + self.default_zero_env_path)
-    #     self._sim_config.apply_articulation_settings("platform2", get_prim_at_path(platform2.prim_path), self._sim_config.parse_actor_config("platform_object"))
+    def get_platform2(self):
+        self.platform_position = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+        self.platform_scale = torch.tensor([(1.5, 2, 0.3)], device=self.device)
+        self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
+        add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform2")
+        platform2 = XFormPrim(
+        prim_path=self.default_zero_env_path + "/platform2/pp/Cube",
+        name="platform2",
+        translation=self.platform_position,
+        scale=self.platform_scale,
+        visible=True,
+        )
+        print('Path to help:' + self.default_zero_env_path)
+        self._sim_config.apply_articulation_settings("platform2", get_prim_at_path(platform2.prim_path), self._sim_config.parse_actor_config("platform_object"))
 
     def get_cube(self):
         self.cube_displacement_tensor = torch.tensor([0.0, 0.0, 0.0], device=self.device)
@@ -379,22 +270,13 @@ class ReacherTask(RLTask):
         end_effector_pos, end_effector_rot = self._arms._end_effectors.get_world_poses()
         self.fall_dist = 0
         self.fall_penalty = 0
-        #, self.reset_goal_buf[:],self.reset_buf[:], , self.successes[:], self.consecutive_successes[:]
-
-        reading = self._cs.get_sensor_readings(self.default_zero_env_path + "/ur10/wrist_2_link" + "/sensor")
-        print(f'Collision{reading}')
-        
-        reading_2 = self._cs.get_sensor_readings(self.default_zero_env_path + "/platform" + "/sensor")
-        print(f'Collision_Platform{reading_2}')
-
-
-        self.rew_buf[:],self.progress_buf[:], self.successes[:], self.consecutive_successes[:],self.reset_buf[:] = compute_arm_reward(
+        self.rew_buf[:], self.reset_buf[:], self.reset_goal_buf[:], self.progress_buf[:], self.successes[:], self.consecutive_successes[:] = compute_arm_reward(
             self.rew_buf, self.reset_buf, self.reset_goal_buf, self.progress_buf, self.successes, self.consecutive_successes,
             self.max_episode_length, self.object_pos, self.object_rot, self.goal_pos, self.goal_rot,
             end_effector_pos, # end_effector_rot, # TODO: use end effector rotation
             self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
             self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
-            self.max_consecutive_successes, self.av_factor, self.paltform_pos,
+            self.max_consecutive_successes, self.av_factor,
         )
         #print(self.rew_buf) # print reward buffer
         self.extras['consecutive_successes'] = self.consecutive_successes.mean()
@@ -416,10 +298,10 @@ class ReacherTask(RLTask):
         end_effectors_pos, end_effectors_rot = self._arms._end_effectors.get_world_poses()
         object_dist = torch.norm(end_effectors_pos - self.object_pos, p=2, dim=-1)
         # if only goals need reset, then call set API
-        #if len(goal_env_ids) > 0 and len(env_ids) == 0:
-        #    self.reset_target_pose(goal_env_ids)
-        #elif len(goal_env_ids) > 0:
-        #    self.reset_target_pose(goal_env_ids)
+        if len(goal_env_ids) > 0 and len(env_ids) == 0:
+            self.reset_target_pose(goal_env_ids)
+        elif len(goal_env_ids) > 0:
+            self.reset_target_pose(goal_env_ids)
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
 
@@ -475,21 +357,20 @@ class ReacherTask(RLTask):
     def reset_target_pose(self, env_ids):
         # reset goal and object
         indices = env_ids.to(dtype=torch.int32)
-        rand_floats = torch.tensor([0.5,0.5,0.5])
 
         # Random Postions
         object_rand_floats = torch_rand_float(1.0, 1.0, (len(env_ids), 4), device=self.device)
         goal_rand_floats = torch_rand_float(-1.0, -1.0, (len(env_ids), 4), device=self.device)
-        new_pos = self.get_reset_target_new_pos(len(env_ids))
-        new_pos_object = self.get_reset_target_new_pos(len(env_ids))
+        # new_pos = self.get_reset_target_new_pos(len(env_ids))
+        # new_pos_object = self.get_reset_target_new_pos(len(env_ids))
         new_rot = randomize_rotation(goal_rand_floats[:, 0], goal_rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
         new_rot_object = randomize_rotation(object_rand_floats[:, 0], object_rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
         
         #Static Positions, for testing
-        # value = torch.tensor([0.8, 0.0, 0.1], device=self.device)
-        # value_object = torch.tensor([-0.8, 0.0, 0.1], device=self.device)
-        # new_pos = value.repeat(len(env_ids), 1)
-        # new_pos_object = value_object.repeat(len(env_ids), 1)
+        value = torch.tensor([0.8, 0.0, 0.1], device=self.device)
+        value_object = torch.tensor([-0.8, 0.0, 0.1], device=self.device)
+        new_pos = value.repeat(len(env_ids), 1)
+        new_pos_object = value_object.repeat(len(env_ids), 1)
 
         # print('new_pos_goal: ' + str(new_pos))
         # print('new_pos_object: '+ str(new_pos_object))
@@ -503,9 +384,6 @@ class ReacherTask(RLTask):
         self._objects.set_world_poses(object_pos[env_ids], object_rot[env_ids], indices)
         #self.reset_object_buf[env_ids] = 0
 
-        new_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
-        #new_rot = randomize_rotation(rand_floats[:, 0], rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
-
         self.goal_pos[env_ids] = new_pos
         self.goal_rot[env_ids] = new_rot
 
@@ -515,13 +393,11 @@ class ReacherTask(RLTask):
         self._goals.set_world_poses(goal_pos[env_ids], goal_rot[env_ids], indices)
         self.reset_goal_buf[env_ids] = 0
 
-
     def reset_idx(self, env_ids):
         indices = env_ids.to(dtype=torch.int32)
         rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), self.num_arm_dofs * 2 + 5), device=self.device)
 
-        #self.reset_target_pose(env_ids)
-        #self.move_platform(env_ids,10)
+        self.reset_target_pose(env_ids)
 
         # reset arm
         delta_max = self.arm_dof_upper_limits - self.arm_dof_default_pos
@@ -578,24 +454,14 @@ def compute_arm_reward(
     # goal_dist = torch.sum(torch.abs(end_effector_pos - object_pos), dim=-1)
 
 
-    goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
-    #print(f"goal_dist: {goal_dist[0]}")
     # Orientation alignment for the cube in hand and goal cube
     quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
     rot_dist = 2.0 * torch.asin(torch.clamp(torch.norm(quat_diff[:, 1:4], p=2, dim=-1), max=1.0)) # changed quat convention
 
-    #dist_rew = goal_dist * dist_reward_scale
-    dist_rew= 1.0 / (2 * goal_dist)
-    #print(f"dist_rew: {goal_dist[0]}")
+    dist_rew = goal_dist * dist_reward_scale
     rot_rew = 1.0/(torch.abs(rot_dist) + rot_eps) * rot_reward_scale
-   
 
     action_penalty = torch.sum(actions ** 2, dim=-1)
-     # effort reward
-    effort = torch.square(actions).sum(-1)
-    effort_reward = 0.05 * torch.exp(-0.5 * effort)
-    #print(f"action_penalty: {action_penalty[0]}")
-    #print(f"action_penalty_scale: {action_penalty_scale}")
 
     # large positive reward for picking up the object
     # pickup_reward = (goal_dist < 0.1).float() * 100.0
@@ -609,35 +475,17 @@ def compute_arm_reward(
 
 
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
-    #reward = dist_rew + action_penalty * action_penalty_scale #+ rot_rew
-
-    #Test Wiliam
-
-    reward = dist_rew-  action_penalty * action_penalty_scale
-
-    #print(f"dist: {goal_dist[0]}")
+    reward = dist_rew + action_penalty * action_penalty_scale + rot_rew + success_reward
+    
 
     # Find out which envs hit the goal and update successes count
-    #goal_resets = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf), reset_goal_buf)
-    #successes = successes + goal_resets
-    #print(f"reward: {reward[0]}")
+    goal_resets = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf), reset_goal_buf)
+    successes = successes + goal_resets
+
     # Success bonus: orientation is within `success_tolerance` of goal orientation
-    # reward = torch.where(goal_resets == 1, reward + reach_goal_bonus, reward)
-    # print('reward: ' + str(reward))
-    #reward = torch.where(torch.abs(goal_dist) <= success, goal_rot _tolerance, reward + reach_goal_bonus, reward)
+    reward = torch.where(goal_resets == 1, reward + reach_goal_bonus, reward)
+    print('reward: ' + str(reward))
 
-    #Leave Goal                             condition                    input      otherwise
-    #goal_penalty = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf),reset_goal_buf)
-    #print(f"goal_penalty:{goal_penalty[0]}, goal_dist:{goal_dist[0]}")
-    #reward = torch.where(goal_penalty == 1, reward + 10, reward) 
-    #goal_penalty = torch.where(goal_penalty== 1, 2,0)
-    #reward = torch.where(goal_penalty == 1, reward - reach_goal_bonus, reward) 
-    #print(f"reward2: {reward[0]}")
-
-    
-
-    
-    
     resets = reset_buf
     if max_consecutive_successes > 0:
         # Reset progress buffer on goal envs if max_consecutive_successes > 0
@@ -650,43 +498,9 @@ def compute_arm_reward(
 
     cons_successes = torch.where(num_resets > 0, av_factor*finished_cons_successes/num_resets + (1.0 - av_factor)*consecutive_successes, consecutive_successes)
 
-    return reward,  progress_buf, successes, cons_successes, resets#,goal_resets, 
-
-
-
-########################
-#Added from William Rodmann
-########################
-
-def move_platform(self, env_ids, steps):
-    indices = env_ids.to(dtype=torch.int32)
-
-    #Move between -0.15 and 0.15 (just a test)
-    #Update poition á 10 timesteps
-    paltform_pos = self.paltform_pos.clone()
-
-    #Struktur self.rect_pos=torch.tensor([0,0,0])
-
-    #for i in range(0,steps):
-    """
-    if steps%10 == 0:
-        if(rect_pos[env_ids][2] >= 0.15 ):
-            rect_pos[env_ids][2] += -0.03
-        elif(rect_pos[env_ids][2] <= -0.15 ):
-            rect_pos[env_ids][2]+= +0.03
-
-    """
-    print("Rect_pos", paltform_pos)
-    #rect_pos[env_ids] = self.goal_pos[env_ids] + self._env_pos[env_ids]
-    #self.rect_pos[env_ids] = rect_pos
-
-    #self._goals.set_world_poses(rect_pos[env_ids], indices)
-
-# def _placing_goal_reached(self, *args): 
-#     return
-
-# def goalReached(self):
-#     if self._is_moving:
-#         state = self._ur10
-#         return True
-#     return False
+    # place holders restets, goal_resets and cons_successes
+    # resets = torch.zeros_like(reset_buf)
+    # goal_resets = torch.zeros_like(reset_goal_buf)
+    # cons_successes = torch.zeros_like(consecutive_successes)
+    
+    return reward, resets, goal_resets, progress_buf, successes, cons_successes

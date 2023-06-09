@@ -47,13 +47,11 @@ class UR10(Robot):
         usd_path: Optional[str] = None,
         translation: Optional[torch.tensor] = None,
         orientation: Optional[torch.tensor] = None,
-
         ####################
         end_effector_prim_name: Optional[str] = None,
         attach_gripper: bool = False,
         gripper_usd: Optional[str] = "default",
         ####################
-
     ) -> None:
 
         self._usd_path = usd_path
@@ -65,11 +63,18 @@ class UR10(Robot):
         self._end_effector_prim_name = end_effector_prim_name
         ####################
 
-        if self._usd_path is None: # Default no usd path specified --> imports ur10_short_suction_instanceable.usd
+        ####################
+        self._end_effector = None
+        self._gripper = None
+        self._end_effector_prim_name = end_effector_prim_name
+        ####################
+
+        if self._usd_path is None:
             assets_root_path = get_assets_root_path()
             if assets_root_path is None:
                 carb.log_error("Could not find Isaac Sim assets folder")
-            self._usd_path = "/root/RLrepo/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1/Isaac/Robots/UR10/ur10_short_suction_instanceable.usd" #omniverse://localhost/Projects/J3soon/Isaac/2022.1/Isaac/Robots/UR10/ur10_instanceable.usd
+            #self._usd_path = "omniverse://localhost/Projects/J3soon/Isaac/2022.1/Isaac/Robots/UR10/ur10_instanceable.usd"
+            self._usd_path = "/home/willi/Dokumente/ur_10_inst_box_zip/ur_10_inst_box/Isaac/2022.1/Isaac/Robots/UR10/ur10_instanceable.usd"
         
         ####################
         if self._end_effector_prim_name is None: #default --> Attaches the gripper
@@ -77,7 +82,7 @@ class UR10(Robot):
         else:
             self._end_effector_prim_path = prim_path + "/" + end_effector_prim_name
         ####################
-
+        
         # Depends on your real robot setup
         self._position = torch.tensor([0.0, 0.0, 0.0]) if translation is None else translation
         self._orientation = torch.tensor([1.0, 0.0, 0.0, 0.0]) if orientation is None else orientation
@@ -91,7 +96,6 @@ class UR10(Robot):
             orientation=self._orientation,
             articulation_controller=None,
         )
-        
         ####################
         self._gripper_usd = gripper_usd #default
         
