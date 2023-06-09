@@ -37,7 +37,6 @@ from omni.isaac.core.utils.prims import get_prim_at_path
 from omni.isaac.core.utils.torch import *
 from omni.isaac.gym.vec_env import VecEnvBase
 
-import random
 import numpy as np
 import torch
 import math
@@ -96,7 +95,7 @@ class UR10ReacherTask(ReacherTask):
                 [-pi + pi/8, pi - pi/8], # [-2*pi, 2*pi],
                 [-pi, 0],                # [-2*pi, 2*pi],
                 [-pi, pi],               # [-2*pi, 2*pi],
-                [-2*pi, 2*pi],           # [-2*pi, 2*pi],
+                [-2*pi, 2*pi]           # [-2*pi, 2*pi],
             ]], dtype=torch.float32, device=self._cfg["sim_device"])
             # The last action space cannot be [0, 0]
             # It will introduce the following error:
@@ -117,13 +116,16 @@ class UR10ReacherTask(ReacherTask):
     def get_num_dof(self):
         return self._arms.num_dof
 
+    # import the robot arm ur10 --> ur10.py
     def get_arm(self):
-        ur10 = UR10(prim_path=self.default_zero_env_path + "/ur10", name="UR10")
+        ur10 = UR10(prim_path=self.default_zero_env_path + "/ur10", name="UR10", gripper_usd=None, attach_gripper=True)
         self._sim_config.apply_articulation_settings(
             "ur10",
             get_prim_at_path(ur10.prim_path),
             self._sim_config.parse_actor_config("ur10"),
         )
+        return ur10
+        
 
     def get_arm_view(self, scene):
         arm_view = UR10View(prim_paths_expr="/World/envs/.*/ur10", name="ur10_view")
@@ -154,12 +156,8 @@ class UR10ReacherTask(ReacherTask):
     def get_reset_target_new_pos(self, n_reset_envs):
         # Randomly generate goal positions, although the resulting goal may still not be reachable.
         # new_pos = torch_rand_float(-1, 1, (n_reset_envs, 3), device=self.device)
-        # print(new_pos)
-        # print(new_pos.shape)
-        target_poses = [[0.443423, -0.13423, 0.343423],[0.23423, -0.13423, 0.343423],[-0.143423, -0.13423, 0.343423], [-0.443423, -0.13423, 0.343423]]
-        target_pose = torch.tensor(random.choice(target_poses), device=self.device)
-        # new_pos = torch.full((n_reset_envs, 3),random.choice(target_poses) , device=self.device)
-        new_pos = target_pose.repeat(n_reset_envs,1)
+        # Non random implementation
+        new_pos = torch_rand_float(-1, 1, (n_reset_envs, 3), device=self.device)
         if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
             # Depends on your real robot setup
             new_pos[:, 0] = torch.abs(new_pos[:, 0] * 0.1) + 0.35

@@ -276,5 +276,9 @@
 		"${env:HOME}/.local/share/ov/pkg/isaac_sim-2022.1.1/exts/omni.isaac.ml_archive/pip_prebundle",
 		"${env:HOME}/.local/share/ov/pkg/isaac_sim-2022.1.1/exts/omni.kit.pip_torch-1_11_0-0.1.3+103.1.wx64.cp37/torch-1-11-0",
 		"${env:HOME}/.local/share/ov/pkg/isaac_sim-2022.1.1/exts/omni.kit.pip_torch-1_11_0-0.1.3+103.1.lx64.cp37/torch-1-11-0",
-    ]
+	],
+	"[python]": {
+		"editor.defaultFormatter": "ms-python.autopep8"
+	},
+	"python.formatting.provider": "none"
 }

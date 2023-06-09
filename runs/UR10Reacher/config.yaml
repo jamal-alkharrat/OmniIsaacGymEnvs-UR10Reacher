@@ -35,7 +35,11 @@ task:
     maxConsecutiveSuccesses: 0
   sim:
     dt: 0.0083
-    add_ground_plane: false
+    gravity:
+    - 0.0
+    - 0.0
+    - -9.81
+    add_ground_plane: true
     add_distant_light: true
     use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
     use_flatcache: true
@@ -173,7 +177,7 @@ train:
         print_stats: true
 task_name: ${task.name}
 experiment: ''
-num_envs: 1
+num_envs: ''
 seed: 42
 torch_deterministic: false
 max_iterations: ''
@@ -184,8 +188,8 @@ device_id: 0
 rl_device: cuda:0
 num_threads: 4
 solver_type: 1
-test: true
-checkpoint: /home/abi/Desktop/isaac-sim-RL/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/runs/UR10Reacher/nn/UR10Reacher.pth
+test: false
+checkpoint: ''
 headless: false
 wandb_activate: false
 wandb_group: ''

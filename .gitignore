@@ -1,7 +1,10 @@
 *.pyc
 __pycache___
+__pycache__/
 /__pycache__/
 runs
 omniisaacgymenvs.egg-info/
 checkpoints
 omniisaacgymenvs/wandb
+omniisaacgymenvs/runs
+omniisaacgymenvs/runs/UR10Reacher/nn/UR10Reacher.pth

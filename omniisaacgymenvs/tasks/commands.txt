@@ -1,0 +1,3 @@
+python omniisaacgymenvs/scripts/rlgames_train.py task=UR10Reacher tue num_envs=1 checkpoint=runs/UR10Reacher/nn/UR10Reacher.pth 
+
+python omniisaacgymenvs/scripts/rlgames_train.py task=UR10Reacher
