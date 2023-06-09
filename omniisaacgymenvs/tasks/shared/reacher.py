@@ -183,7 +183,7 @@ class ReacherTask(RLTask):
         self._ur10 =scene.add(self.get_arm())
         self.get_object()
         self.get_goal()
-        self.get_platform()
+        #self.get_platform()
 
         super().set_up_scene(scene)
 

@@ -177,7 +177,7 @@ train:
         print_stats: true
 task_name: ${task.name}
 experiment: ''
-num_envs: 2
+num_envs: 200
 seed: 42
 torch_deterministic: false
 max_iterations: ''
@@ -188,8 +188,8 @@ device_id: 0
 rl_device: cuda:0
 num_threads: 4
 solver_type: 1
-test: true
-checkpoint: /home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/runs/UR10Reacher/nn/UR10Reacher.pth
+test: false
+checkpoint: ''
 headless: false
 wandb_activate: false
 wandb_group: ''
