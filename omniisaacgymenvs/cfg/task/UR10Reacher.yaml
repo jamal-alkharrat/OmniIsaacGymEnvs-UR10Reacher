@@ -107,7 +107,7 @@ sim:
     # -1 to use default values
     override_usd_defaults: False
     fixed_base: True
-    enable_self_collisions: False
+    enable_self_collisions: True
     enable_gyroscopic_forces: True
     # also in stage params
     # per-actor
