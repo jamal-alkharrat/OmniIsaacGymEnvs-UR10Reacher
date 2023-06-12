@@ -44,6 +44,32 @@ from omni.isaac.core.utils.viewports import set_camera_view
 import numpy as np
 import torch
 
+##############
+#added from "William Rodmann"
+
+import omni.kit.commands
+from pxr import UsdGeom, Gf
+from omni.isaac.isaac_sensor import _isaac_sensor
+from copy import copy
+from enum import Enum
+
+class UR10_events(Enum):
+    START = 0
+    GOAL_REACHED = 1
+    ATTACHED = 2
+    DETACHED = 3
+    TIMEOUT = 4
+    STOP = 5
+    
+    NONE = 6
+
+class UR10_states(Enum):
+    STANDBY=0
+    PICKING=1
+    ATTACH=2
+    PLACING=3
+    DETACH=4
+#############
 
 BACKGROUND_STAGE_PATH = "/background"
 BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
@@ -105,6 +131,50 @@ class ReacherTask(RLTask):
         self.av_factor = torch.tensor(self.av_factor, dtype=torch.float, device=self.device)
         self.total_successes = 0
         self.total_resets = 0
+        
+        ####
+        #added from "William Rodmann"
+
+        self.paltform_pos=torch.tensor([0.5,0.6,0.3],  device=self.device)
+
+        # #Short Gripper
+
+        # self._is_moving = False
+
+        # self.sm= {}
+        # for s in UR10_states:
+        #     self.sm[s] = {}
+        #     for e in UR10_events:
+        #         self.sm[s][e] = self._empty
+        #         self.thresh[s] = 0
+
+        # self.sm[UR10_states.STANDBY][UR10_events.GOAL_REACHED] = self._standby_start()
+        # self.sm[UR10_states.STANDBY][UR10_events.GOAL_REACHED] = self._standby_goal_reached
+        # self.thresh[UR10_states.STANDBY] = 3
+
+        # self.sm[UR10_states.PICKING][UR10_events.GOAL_REACHED] = self._picking_goal_reached
+        # self.sm[UR10_states.PICKING][UR10_events.NONE] = self._picking_no_event
+        # self.thresh[UR10_states.PICKING] = 1
+
+        # #self.sm[UR10_states.FLIPPING][UR10_events.GOAL_REACHED] = self._flipping_goal_reached
+        # #self.thresh[UR10_states.FLIPPING] = 2
+
+        # self.sm[UR10_states.PLACING][UR10_events.GOAL_REACHED] = self._placing_goal_reached
+        # self.thresh[UR10_states.PLACING] = 0
+
+        # self.sm[UR10_states.ATTACH][UR10_events.GOAL_REACHED] = self._attach_goal_reached
+        # self.sm[UR10_states.ATTACH][UR10_events.ATTACHED] = self._attach_attached
+        # self.thresh[UR10_states.ATTACH] = 0
+
+        # self.sm[UR10_states.DETACH][UR10_events.GOAL_REACHED] = self._detach_goal_reached
+        # self.sm[UR10_states.DETACH][UR10_events.DETACHED] = self._detach_detached
+        # self.thresh[UR10_states.DETACH] = 0
+
+        # self.current_state = UR10_states.STANDBY
+        # self.previous_state = -1
+        # self._physx_query_interface = omni.physx.get_physx_scene_query_interface()
+
+        ######
         return
 
     def set_up_scene(self, scene: Scene) -> None:
@@ -114,8 +184,7 @@ class ReacherTask(RLTask):
 
         self.get_object()
         self.get_goal()
-        # self.get_platform()
-        # self.get_platform2()
+        self.get_platform()
 
         super().set_up_scene(scene)
 
@@ -146,10 +215,10 @@ class ReacherTask(RLTask):
         scene.add(self._goals)
 
         # set default camera viewport position and target
-        self.set_initial_camera_params()
+        #self.set_initial_camera_params()
 
-    def set_initial_camera_params(self, camera_position=[3, 3, 2], camera_target=[0, 0, 0]):
-        set_camera_view(eye=camera_position, target=camera_target, camera_prim_path="/OmniverseKit_Persp")
+    # def set_initial_camera_params(self, camera_position=[3, 3, 2], camera_target=[0, 0, 0]):
+    #     set_camera_view(eye=camera_position, target=camera_target, camera_prim_path="/OmniverseKit_Persp")
 
 
     @abstractmethod
@@ -206,35 +275,20 @@ class ReacherTask(RLTask):
         )
         self._sim_config.apply_articulation_settings("goal", get_prim_at_path(goal.prim_path), self._sim_config.parse_actor_config("goal_object"))
         
-    # def get_platform(self):
-    #     self.platform_position = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-    #     self.platform_scale = torch.tensor([(3, 4, 0.3)], device=self.device)
-    #     self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
-    #     add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
-    #     platform = XFormPrim(
-    #     prim_path=self.default_zero_env_path + "/platform/pp/Cube",
-    #     name="platform",
-    #     translation=self.platform_position,
-    #     scale=self.platform_scale,
-    #     visible=True,
-    #     )
-    #     print('Path to help:' + self.default_zero_env_path)
-    #     self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
+    def get_platform(self):
+        self.platform_position = self.paltform_pos
+        self.platform_scale = torch.tensor([(0.3, 0.4, 0.03)], device=self.device)
+        self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/platform_instanceable_help.usd"
+        add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
+        platform = XFormPrim(
+            prim_path=self.default_zero_env_path + "/platform/platform/Cube",
+            name="platform",
+            translation=self.platform_position,
+           scale=self.platform_scale,
+            visible=True,
 
-    # def get_platform2(self):
-    #     self.platform_position = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-    #     self.platform_scale = torch.tensor([(1.5, 2, 0.3)], device=self.device)
-    #     self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
-    #     add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform2")
-    #     platform2 = XFormPrim(
-    #     prim_path=self.default_zero_env_path + "/platform2/pp/Cube",
-    #     name="platform2",
-    #     translation=self.platform_position,
-    #     scale=self.platform_scale,
-    #     visible=True,
-    #     )
-    #     print('Path to help:' + self.default_zero_env_path)
-    #     self._sim_config.apply_articulation_settings("platform2", get_prim_at_path(platform2.prim_path), self._sim_config.parse_actor_config("platform_object"))
+        )
+        self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
 
     def get_cube(self):
         self.cube_displacement_tensor = torch.tensor([0.0, 0.0, 0.0], device=self.device)
