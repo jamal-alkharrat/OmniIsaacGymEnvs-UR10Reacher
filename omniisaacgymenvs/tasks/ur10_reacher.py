@@ -43,7 +43,6 @@ import math
 
 import omni.kit.commands
 from pxr import UsdGeom, Gf
-from omni.isaac.isaac_sensor import _isaac_sensor
 
 
 class UR10ReacherTask(ReacherTask):
@@ -80,10 +79,6 @@ class UR10ReacherTask(ReacherTask):
         self._num_observations = self.num_obs_dict[self.obs_type]
         self._num_actions = 6
         self._num_states = 0
-
-        #Sensor
-        self._cs = _isaac_sensor.acquire_contact_sensor_interface()
-
 
 
         pi = math.pi
@@ -134,27 +129,6 @@ class UR10ReacherTask(ReacherTask):
             get_prim_at_path(ur10.prim_path),
             self._sim_config.parse_actor_config("ur10"),
         )
-        
-
-     
-        # result, sensor = omni.kit.commands.execute(
-        #     "IsaacSensorCreateContactSensor",
-        #     path="/sensor",
-        #     parent=self.default_zero_env_path + "/ur10/wrist_2_link",
-        #     min_threshold=0,
-        #     max_threshold=10000000,
-        #     color=(1, 0, 0, 1),
-        #     radius=0.12,
-        #     sensor_period=-1,
-        #     translation=Gf.Vec3d(0,0,0),
-        #     visualize=True,)#
-        
-            
-
-        #self._events = omni.usd.get_context().get_stage_event_stream()
-        #self._stage_event_subscription = self._events.create_subscription_to_pop(
-         #   self._on_stage_event, name="Contact Sensor Sample stage Watch"
-        #)
         return ur10
     
     def get_arm_view(self, scene):
