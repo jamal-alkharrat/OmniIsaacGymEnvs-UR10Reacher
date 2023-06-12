@@ -96,8 +96,22 @@ def Xform "World"
     }
 }
 
+def "platform_help"
+{
+    def "platform"
+    {
+        def Xform "collisions_xform" (
+            instanceable = true
+            prepend references = @./mesh.usd@</platform_help/platform/collisions_xform>
+        )
+        {
+        }
+    }
+}
+
 over "Render" (
     hide_in_stage_window = true
 )
 {
 }
+
