@@ -43,12 +43,18 @@ from omni.isaac.core.utils.viewports import set_camera_view
 
 import numpy as np
 import torch
+####
+#From William Rodmann
 
+from omni.isaac.utils._isaac_utils import math as math_utils
+import carb
+from omni.isaac.dynamic_control import _dynamic_control
 import omni.kit.commands
 from pxr import UsdGeom, Gf
-from omni.isaac.isaac_sensor import _isaac_sensor
+#from omni.isaac.isaac_sensor import _isaac_sensor
 from copy import copy
 from enum import Enum
+####
 
 class UR10_events(Enum):
     START = 0
@@ -57,8 +63,7 @@ class UR10_events(Enum):
     DETACHED = 3
     TIMEOUT = 4
     STOP = 5
-    
-    NONE = 6
+
 
 class UR10_states(Enum):
     STANDBY=0
@@ -133,45 +138,48 @@ class ReacherTask(RLTask):
         self.total_resets = 0
         self.paltform_pos=torch.tensor([0.5,0.6,0.3],  device=self.device)
         
-        #Sensor
-        self._cs = _isaac_sensor.acquire_contact_sensor_interface()
+        #Sensor from William Rodmann
+        #self._cs = _isaac_sensor.acquire_contact_sensor_interface()
         
         # #Short Gripper
 
-        # self._is_moving = False
+        self.target_pos = torch.tensor([1.0, 2.0, 3.0], device=self.device) 
+        self._is_moving = False
+        self.start=False
+        self._upright = False
+        self._closed =False
+        self._attached = False 
 
-        # self.sm= {}
-        # for s in UR10_states:
-        #     self.sm[s] = {}
-        #     for e in UR10_events:
-        #         self.sm[s][e] = self._empty
-        #         self.thresh[s] = 0
+        self.thresh = {}
 
-        # self.sm[UR10_states.STANDBY][UR10_events.GOAL_REACHED] = self._standby_start()
-        # self.sm[UR10_states.STANDBY][UR10_events.GOAL_REACHED] = self._standby_goal_reached
-        # self.thresh[UR10_states.STANDBY] = 3
+        self.sm= {}
+        for s in UR10_states:
+            self.sm[s] = {}
+            for e in UR10_events:
+                self.sm[s][e] = self._empty
+                self.thresh[s] = 0
 
-        # self.sm[UR10_states.PICKING][UR10_events.GOAL_REACHED] = self._picking_goal_reached
-        # self.sm[UR10_states.PICKING][UR10_events.NONE] = self._picking_no_event
-        # self.thresh[UR10_states.PICKING] = 1
+        self.sm[UR10_states.STANDBY][UR10_events.START] = self._standby_start()
+        self.sm[UR10_states.STANDBY][UR10_events.GOAL_REACHED] = self._standby_goal_reached
+        self.thresh[UR10_states.STANDBY] = 3
 
-        # #self.sm[UR10_states.FLIPPING][UR10_events.GOAL_REACHED] = self._flipping_goal_reached
-        # #self.thresh[UR10_states.FLIPPING] = 2
+        self.sm[UR10_states.PICKING][UR10_events.GOAL_REACHED] = self._picking_goal_reached
+        self.thresh[UR10_states.PICKING] = 1
 
-        # self.sm[UR10_states.PLACING][UR10_events.GOAL_REACHED] = self._placing_goal_reached
-        # self.thresh[UR10_states.PLACING] = 0
+        self.sm[UR10_states.PLACING][UR10_events.GOAL_REACHED] = self._placing_goal_reached
+        self.thresh[UR10_states.PLACING] = 0
 
-        # self.sm[UR10_states.ATTACH][UR10_events.GOAL_REACHED] = self._attach_goal_reached
-        # self.sm[UR10_states.ATTACH][UR10_events.ATTACHED] = self._attach_attached
-        # self.thresh[UR10_states.ATTACH] = 0
+        self.sm[UR10_states.ATTACH][UR10_events.GOAL_REACHED] = self._attach_goal_reached
+        self.sm[UR10_states.ATTACH][UR10_events.ATTACHED] = self._attach_attached
+        self.thresh[UR10_states.ATTACH] = 0
 
-        # self.sm[UR10_states.DETACH][UR10_events.GOAL_REACHED] = self._detach_goal_reached
-        # self.sm[UR10_states.DETACH][UR10_events.DETACHED] = self._detach_detached
-        # self.thresh[UR10_states.DETACH] = 0
+        self.sm[UR10_states.DETACH][UR10_events.GOAL_REACHED] = self._detach_goal_reached
+        self.sm[UR10_states.DETACH][UR10_events.DETACHED] = self._detach_detached
+        self.thresh[UR10_states.DETACH] = 0
 
-        # self.current_state = UR10_states.STANDBY
-        # self.previous_state = -1
-        # self._physx_query_interface = omni.physx.get_physx_scene_query_interface()
+        self.current_state = UR10_states.STANDBY
+        self.previous_state = -1
+        self._physx_query_interface = omni.physx.get_physx_scene_query_interface()
 
 
         return
@@ -179,11 +187,11 @@ class ReacherTask(RLTask):
     def set_up_scene(self, scene: Scene) -> None:
         self._stage = get_current_stage()
         #self._assets_root_path = 'omniverse://localhost/Projects/J3soon/Isaac/2022.1'
-        self._assets_root_path = '/home/willi/Dokumente/ur_10_inst_box_zip/ur_10_inst_box/Isaac/2022.1'
+        self._assets_root_path = '/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1'
         self._ur10 =scene.add(self.get_arm())
         self.get_object()
         self.get_goal()
-        #self.get_platform()
+        self.get_platform()
 
         super().set_up_scene(scene)
 
@@ -214,10 +222,10 @@ class ReacherTask(RLTask):
         scene.add(self._goals)
 
         # set default camera viewport position and target
-        self.set_initial_camera_params()
+        #self.set_initial_camera_params()
 
-    def set_initial_camera_params(self, camera_position=[3, 3, 2], camera_target=[0, 0, 0]):
-        set_camera_view(eye=camera_position, target=camera_target, camera_prim_path="/OmniverseKit_Persp")
+    # def set_initial_camera_params(self, camera_position=[3, 3, 2], camera_target=[0, 0, 0]):
+    #     set_camera_view(eye=camera_position, target=camera_target, camera_prim_path="/OmniverseKit_Persp")
 
 
     @abstractmethod
@@ -258,6 +266,9 @@ class ReacherTask(RLTask):
 
         )
         self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
+
+        #####
+        #Sensor form William Rodmann
         #result, sensor = omni.kit.commands.execute(
         #    "IsaacSensorCreateContactSensor",
         #    path="/sensor",
@@ -271,7 +282,7 @@ class ReacherTask(RLTask):
          #   visualize=True,)
 
         #self._events = omni.usd.get_context().get_stage_event_stream()
-
+        #######
     def get_object(self):
         self.object_start_translation = torch.tensor([0.2, 0.2, 0.1], device=self.device)
         self.object_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
@@ -301,40 +312,10 @@ class ReacherTask(RLTask):
             scale=self.goal_scale
         )
         self._sim_config.apply_articulation_settings("goal", get_prim_at_path(goal.prim_path), self._sim_config.parse_actor_config("goal_object"))
-        
-    # def get_platform(self):
-    #     self.platform_position = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-    #     self.platform_scale = torch.tensor([(3, 4, 0.3)], device=self.device)
-    #     self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
-    #     add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
-    #     platform = XFormPrim(
-    #     prim_path=self.default_zero_env_path + "/platform/pp/Cube",
-    #     name="platform",
-    #     translation=self.platform_position,
-    #     scale=self.platform_scale,
-    #     visible=True,
-    #     )
-    #     print('Path to help:' + self.default_zero_env_path)
-    #     self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
-
-    # def get_platform2(self):
-    #     self.platform_position = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-    #     self.platform_scale = torch.tensor([(1.5, 2, 0.3)], device=self.device)
-    #     self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
-    #     add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform2")
-    #     platform2 = XFormPrim(
-    #     prim_path=self.default_zero_env_path + "/platform2/pp/Cube",
-    #     name="platform2",
-    #     translation=self.platform_position,
-    #     scale=self.platform_scale,
-    #     visible=True,
-    #     )
-    #     print('Path to help:' + self.default_zero_env_path)
-    #     self._sim_config.apply_articulation_settings("platform2", get_prim_at_path(platform2.prim_path), self._sim_config.parse_actor_config("platform_object"))
 
     def get_cube(self):
         self.cube_displacement_tensor = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-        self.cube_start_translation = torch.tensor([1.0, 2.0, 3.0], device=self.device) + self.cube_displacement_tensor
+        self.cube_start_translation = self.target_pos + self.cube_displacement_tensor
         self.cube_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
 
         self.cube_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
@@ -365,6 +346,12 @@ class ReacherTask(RLTask):
 
         self.end_effectors_init_pos, self.end_effectors_init_rot = self._arms._end_effectors.get_world_poses()
 
+        ####
+        #Added from William Rodmann
+        self._ur10._gripper.open()
+        ####
+
+
         self.object_pos, self.object_rot = self._objects.get_world_poses()
         self.object_pos -= self._env_pos
 
@@ -381,13 +368,6 @@ class ReacherTask(RLTask):
         self.fall_penalty = 0
         #, self.reset_goal_buf[:],self.reset_buf[:], , self.successes[:], self.consecutive_successes[:]
 
-        reading = self._cs.get_sensor_readings(self.default_zero_env_path + "/ur10/wrist_2_link" + "/sensor")
-        print(f'Collision{reading}')
-        
-        reading_2 = self._cs.get_sensor_readings(self.default_zero_env_path + "/platform" + "/sensor")
-        print(f'Collision_Platform{reading_2}')
-
-
         self.rew_buf[:],self.progress_buf[:], self.successes[:], self.consecutive_successes[:],self.reset_buf[:] = compute_arm_reward(
             self.rew_buf, self.reset_buf, self.reset_goal_buf, self.progress_buf, self.successes, self.consecutive_successes,
             self.max_episode_length, self.object_pos, self.object_rot, self.goal_pos, self.goal_rot,
@@ -399,14 +379,14 @@ class ReacherTask(RLTask):
         #print(self.rew_buf) # print reward buffer
         self.extras['consecutive_successes'] = self.consecutive_successes.mean()
 
-        if self.print_success_stat:
-            self.total_resets = self.total_resets + self.reset_buf.sum()
-            direct_average_successes = self.total_successes + self.successes.sum()
-            self.total_successes = self.total_successes + (self.successes * self.reset_buf).sum()
-            # The direct average shows the overall result more quickly, but slightly undershoots long term policy performance.
-            print("Direct average consecutive successes = {:.1f}".format(direct_average_successes/(self.total_resets + self.num_envs)))
-            if self.total_resets > 0:
-                print("Post-Reset average consecutive successes = {:.1f}".format(self.total_successes/self.total_resets))
+        # if self.print_success_stat:
+        #     self.total_resets = self.total_resets + self.reset_buf.sum()
+        #     direct_average_successes = self.total_successes + self.successes.sum()
+        #     self.total_successes = self.total_successes + (self.successes * self.reset_buf).sum()
+        #     # The direct average shows the overall result more quickly, but slightly undershoots long term policy performance.
+        #     print("Direct average consecutive successes = {:.1f}".format(direct_average_successes/(self.total_resets + self.num_envs)))
+        #     if self.total_resets > 0:
+        #         print("Post-Reset average consecutive successes = {:.1f}".format(self.total_successes/self.total_resets))
 
     def pre_physics_step(self, actions):
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -468,7 +448,6 @@ class ReacherTask(RLTask):
             else:
                 self.send_joint_pos(joint_pos)
 
-
     def is_done(self):
         pass
 
@@ -515,7 +494,6 @@ class ReacherTask(RLTask):
         self._goals.set_world_poses(goal_pos[env_ids], goal_rot[env_ids], indices)
         self.reset_goal_buf[env_ids] = 0
 
-
     def reset_idx(self, env_ids):
         indices = env_ids.to(dtype=torch.int32)
         rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), self.num_arm_dofs * 2 + 5), device=self.device)
@@ -549,6 +527,199 @@ class ReacherTask(RLTask):
         self.reset_buf[env_ids] = 0
         self.successes[env_ids] = 0
 
+        ########################
+        #Added from William Rodmann
+        ########################
+
+    def move_platform(self, env_ids, steps):
+        indices = env_ids.to(dtype=torch.int32)
+
+        #Move between -0.15 and 0.15 (just a test)
+        #Update poition á 10 timesteps
+        paltform_pos = self.paltform_pos.clone()
+
+        #Struktur self.rect_pos=torch.tensor([0,0,0])
+
+        #for i in range(0,steps):
+        """
+        if steps%10 == 0:
+            if(rect_pos[env_ids][2] >= 0.15 ):
+                rect_pos[env_ids][2] += -0.03
+            elif(rect_pos[env_ids][2] <= -0.15 ):
+                rect_pos[env_ids][2]+= +0.03
+
+        """
+        print("Rect_pos", paltform_pos)
+        #rect_pos[env_ids] = self.goal_pos[env_ids] + self._env_pos[env_ids]
+        #self.rect_pos[env_ids] = rect_pos
+
+        #self._goals.set_world_poses(rect_pos[env_ids], indices)
+
+    # def _placing_goal_reached(self, *args): 
+    #     return
+
+    # def goalReached(self):
+    #     if self._is_moving:
+    #         state = self._ur10
+    #         return True
+    #     return False
+
+    #######
+    #Helpfunctions
+
+    def change_state(self, new_state):
+        """
+        Function called every time a event handling changes current state
+        """
+        self.current_state = new_state
+        self.start_time = self._time
+        carb.log_warn(str(new_state))
+
+    def get_current_state_tr(self):
+            """
+            Gets current End Effector Transform, converted from Motion position and Rotation matrix
+            """
+            # Gets end effector frame
+            state = self.robot.end_effector.status.current_frame
+
+            orig = state["orig"]
+
+            mat = Gf.Matrix3f(
+                *state["axis_x"].astype(float), *state["axis_y"].astype(float), *state["axis_z"].astype(float)
+            )
+            q = mat.ExtractRotation().GetQuaternion()
+            (q_x, q_y, q_z) = q.GetImaginary()
+            q = [q_x, q_y, q_z, q.GetReal()]
+            tr = _dynamic_control.Transform()
+            tr.p = list(orig)
+            tr.r = q
+            return tr
+
+    def ray_cast(self, x_offset=0.0015, y_offset=0.03, z_offset=0.0):
+            """
+            Projects a raycast forward from the end effector, with an offset in end effector space defined by (x_offset, y_offset, z_offset)
+            if a hit is found on a distance of 100 centimiters, returns the object usd path and its distance
+            """
+            tr = self.get_current_state_tr()
+            offset = _dynamic_control.Transform()
+            offset.p = (x_offset, y_offset, z_offset)
+            raycast_tf = math_utils.mul(tr, offset)
+            origin = raycast_tf.p
+            rayDir = math_utils.get_basis_vector_x(raycast_tf.r)
+            hit = self._physx_query_interface.raycast_closest(origin, rayDir, 1.0)
+            if hit["hit"]:
+                usdGeom = UsdGeom.Mesh.Get(self._stage, hit["rigidBody"])
+                distance = hit["distance"]
+                return usdGeom.GetPath().pathString, distance
+            return None, 10000.0
+    def move_to_target(self):
+        target_position= self.target_pos
+        self._is_moving = True
+        
+        orig = target_position.detach().cpu().numpy()
+        
+        axis_y = np.array(math_utils.get_basis_vector_y(target_position.detach().cpu().numpy().item(1)))
+        axis_z = np.array(math_utils.get_basis_vector_z(target_position.detach().cpu().numpy().item(2)))
+        print(axis_y,axis_z, "help")
+
+        self._ur10.end_effector.go_local(
+            orig=orig,
+            axis_x=[],
+            axis_y=axis_y,
+            axis_z=axis_z,
+            use_default_config=True,
+            wait_for_target=False,
+            wait_time=5.0,
+        )
+
+    def get_target(self):
+        origin = (-0.360, 0.440, -0.500)
+        rayDir = (1, 0, 0)
+        hit = self._physx_query_interface.raycast_closest(origin, rayDir, 1.0)
+        if hit["hit"]:
+            self.current = hit["rigidBody"]
+            return True
+        self.current = None
+        return False
+
+    #####
+    #Main Functions
+
+    def _empty(self, *args):
+            """
+            Empty function to use on states that do not react to some specific event
+            """
+            pass
+        
+    def _standby_start(self):
+
+
+        self.move_to_target()
+        self.change_state(UR10_states.PICKING)
+
+    def _standby_goal_reached(self):
+        self.move_to_zero()
+        self.start = True
+
+    def _picking_goal_reached(self):
+
+        obj, distance = self.ray_cast()
+        if obj is not None:
+                # Set target towards surface of the bin
+                tr = self.get_current_state_tr()
+                offset = _dynamic_control.Transform()
+                offset.p = (distance + 0.0015, 0, 0)
+
+                target = math_utils.mul(tr, offset)
+                # target.p = math_utils.mul(target.p, 0.01)
+                offset.p.x = -0.05
+                pre_target = math_utils.mul(target, offset)
+                # self.lerp_to_pose(pre_target, n_waypoints=90)
+                # self.lerp_to_pose(target, n_waypoints=60)
+                # self.lerp_to_pose(target, n_waypoints=30)
+                #self.target_position = self.waypoints.popleft()
+                self.move_to_target()
+                # Check if bin is upright or not
+                if self._upright:
+                    # Ignore the bin holder obstacle to allow to enter the crevice to drop the bin
+                    self.bin_holder_object.suppress()
+                # Move to attach state
+                self.change_state(UR10_states.ATTACH)
+
+    def _placing_goal_reached(self):
+        # Hier greift die KI ein
+        pass
+
+    def _attach_goal_reached(self):
+        self._ur10._gripper.close()
+        self._closed=True
+        if self._ur10._gripper.is_closed():
+            self._attached = True
+        else:
+            offset = _dynamic_control.Transform()
+            offset.p = (-0.25, 0.0, 0.0)
+            self.target_position = math_utils.mul(self.target_position, offset)
+            self.move_to_target()
+            self.change_state(UR10_states.PICKING)
+
+    def _attach_attached(self):
+        offset = _dynamic_control.Transform()
+        offset.p = (-0.20, 0.0, 0.0)
+        ####Hier fehlt vieles!!!!!!!
+        self.change_state(UR10_states.PLACING)
+
+    def _detach_goal_reached(self):
+        if self._ur10._gripper.is_closed():
+            self._ur10._gripper.open()
+            self._closed = False
+            self._detached = True
+            self.thresh[UR10_states.DETACH] = 3
+        #else fehl / vieles nicht eingefügt
+    def _detach_detached(self):
+        offset = _dynamic_control.Transform()
+        #Arm nach oben bewegen 
+        #Arm in ausgangsposition bewegen (neue Funktion erforderlich!)
+
 
 #####################################################################
 ###=========================jit functions=========================###
@@ -571,14 +742,14 @@ def compute_arm_reward(
 ):  
     #print(end_effector_pos)
     #goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
-    goal_dist = torch.norm(end_effector_pos - object_pos, p=2, dim=-1)
+    goal_dist = torch.norm(end_effector_pos - target_pos, p=2, dim=-1)
     
     # use the L1 norm, this line calculates the distance between the end effector and the object
     # In this line, torch.abs(end_effector_pos - object_pos) computes the absolute difference between the end effector position and the object position along each dimension. torch.sum(..., dim=-1) then adds up these absolute differences to compute the Manhattan distance.
     # goal_dist = torch.sum(torch.abs(end_effector_pos - object_pos), dim=-1)
 
 
-    goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
+    #goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
     #print(f"goal_dist: {goal_dist[0]}")
     # Orientation alignment for the cube in hand and goal cube
     quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
@@ -612,8 +783,10 @@ def compute_arm_reward(
     #reward = dist_rew + action_penalty * action_penalty_scale #+ rot_rew
 
     #Test Wiliam
+    #print(f"goal_dist {goal_dist[0]}")
 
-    reward = dist_rew-  action_penalty * action_penalty_scale
+    #reward = dist_rew-  action_penalty * action_penalty_scale
+    reward = dist_rew + action_penalty * action_penalty_scale #+ rot_rew + success_reward
 
     #print(f"dist: {goal_dist[0]}")
 
@@ -633,10 +806,6 @@ def compute_arm_reward(
     #goal_penalty = torch.where(goal_penalty== 1, 2,0)
     #reward = torch.where(goal_penalty == 1, reward - reach_goal_bonus, reward) 
     #print(f"reward2: {reward[0]}")
-
-    
-
-    
     
     resets = reset_buf
     if max_consecutive_successes > 0:
@@ -654,39 +823,3 @@ def compute_arm_reward(
 
 
 
-########################
-#Added from William Rodmann
-########################
-
-def move_platform(self, env_ids, steps):
-    indices = env_ids.to(dtype=torch.int32)
-
-    #Move between -0.15 and 0.15 (just a test)
-    #Update poition á 10 timesteps
-    paltform_pos = self.paltform_pos.clone()
-
-    #Struktur self.rect_pos=torch.tensor([0,0,0])
-
-    #for i in range(0,steps):
-    """
-    if steps%10 == 0:
-        if(rect_pos[env_ids][2] >= 0.15 ):
-            rect_pos[env_ids][2] += -0.03
-        elif(rect_pos[env_ids][2] <= -0.15 ):
-            rect_pos[env_ids][2]+= +0.03
-
-    """
-    print("Rect_pos", paltform_pos)
-    #rect_pos[env_ids] = self.goal_pos[env_ids] + self._env_pos[env_ids]
-    #self.rect_pos[env_ids] = rect_pos
-
-    #self._goals.set_world_poses(rect_pos[env_ids], indices)
-
-# def _placing_goal_reached(self, *args): 
-#     return
-
-# def goalReached(self):
-#     if self._is_moving:
-#         state = self._ur10
-#         return True
-#     return False
