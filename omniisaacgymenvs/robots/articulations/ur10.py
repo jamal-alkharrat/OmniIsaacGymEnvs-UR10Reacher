@@ -39,6 +39,98 @@ from omni.isaac.core.utils.prims import get_prim_at_path
 
 import carb
 
+#### Added from William Rodmann
+from omni.isaac.motion_planning import _motion_planning
+import time
+import numpy as np
+from pxr import Usd, UsdGeom, Gf, UsdPhysics, PhysxSchema
+
+class EndEffector:
+    def __init__(self, dc, mp, ar, rmp_handle):
+        self.dc = dc
+        self.ar = ar
+        self.mp = mp
+        self.rmp_handle = rmp_handle
+        self.gripper = None
+        #self.status = Status(mp, rmp_handle)
+        self.UpRot = Gf.Rotation(Gf.Vec3d(0, 0, 1), 90)
+
+    def go_local(
+           self,
+        target=None,
+        orig=[],
+        axis_x=[],
+        axis_y=[],
+        axis_z=[],
+        required_orig_err=0.01,
+        required_axis_x_err=0.01,
+        required_axis_y_err=0.01,
+        required_axis_z_err=0.01,
+        orig_thresh=None,
+        axis_x_thresh=None,
+        axis_y_thresh=None,
+        axis_z_thresh=None,
+        approach_direction=[],
+        approach_standoff=0.1,
+        approach_standoff_std_dev=0.001,
+        use_level_surface_orientation=False,
+        use_target_weight_override=True,
+        use_default_config=False,
+        wait_for_target=True,
+        wait_time=None, 
+    ):
+        self.target_weight_override_value = 10000.0
+        self.target_weight_override_std_dev = 0.03
+        # TODO: handle all errors?
+        if orig_thresh:
+            required_orig_err = orig_thresh
+        if axis_x_thresh:
+            required_axis_x_err = axis_x_thresh
+        if axis_y_thresh:
+            required_axis_y_err = axis_y_thresh
+        if axis_z_thresh:
+            required_axis_z_err = axis_z_thresh
+
+        if target:
+            orig = target["orig"]
+            if "axis_x" in target and target["axis_x"] is not None:
+                axis_x = target["axis_x"]
+            if "axis_y" in target and target["axis_y"] is not None:
+                axis_y = target["axis_y"]
+            if "axis_z" in target and target["axis_z"] is not None:
+                axis_z = target["axis_z"]
+
+        orig = np.array(orig)
+        axis_x = np.array(axis_x)
+        axis_y = np.array(axis_y)
+        axis_z = np.array(axis_z)
+        approach = _motion_planning.Approach((0, 0, -1), 0, 0)
+
+        if len(approach_direction) != 0:
+            approach = _motion_planning.Approach(approach_direction, approach_standoff, approach_standoff_std_dev)
+
+        pose_command = _motion_planning.PartialPoseCommand()
+        if len(orig) > 0:
+            pose_command.set(_motion_planning.Command(orig, approach), int(_motion_planning.FrameElement.ORIG))
+        if len(axis_x) > 0:
+            pose_command.set(_motion_planning.Command(axis_x), int(_motion_planning.FrameElement.AXIS_X))
+        if len(axis_y) > 0:
+            pose_command.set(_motion_planning.Command(axis_y), int(_motion_planning.FrameElement.AXIS_Y))
+        if len(axis_z) > 0:
+            pose_command.set(_motion_planning.Command(axis_z), int(_motion_planning.FrameElement.AXIS_Z))
+
+        self.mp.goLocal(self.rmp_handle, pose_command)
+
+        if wait_for_target and wait_time:
+            error = 1
+            future_time = time.time() + wait_time
+
+            while error > required_orig_err and time.time() < future_time:
+                time.sleep(0.1)
+                error = self.mp.getError(self.rmp_handle)
+
+####
+
 class UR10(Robot):
     def __init__(
         self,
@@ -56,15 +148,9 @@ class UR10(Robot):
 
         self._usd_path = usd_path
         self._name = name
-        
-        ####################
-        self._end_effector = None
-        self._gripper = None
-        self._end_effector_prim_name = end_effector_prim_name
-        ####################
 
         ####################
-        self._end_effector = None
+        self._end_effector = EndEffector(self.dc, self.mp, self.ar, self.rmp_handle)
         self._gripper = None
         self._end_effector_prim_name = end_effector_prim_name
         ####################
