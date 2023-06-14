@@ -86,7 +86,7 @@ task:
     goal_object:
       override_usd_defaults: false
       fixed_base: true
-      enable_self_collisions: false
+      enable_self_collisions: true
       enable_gyroscopic_forces: true
       solver_position_iteration_count: 8
       solver_velocity_iteration_count: 0
@@ -177,7 +177,7 @@ train:
         print_stats: true
 task_name: ${task.name}
 experiment: ''
-num_envs: 200
+num_envs: 3
 seed: 42
 torch_deterministic: false
 max_iterations: ''
@@ -188,8 +188,8 @@ device_id: 0
 rl_device: cuda:0
 num_threads: 4
 solver_type: 1
-test: false
-checkpoint: ''
+test: true
+checkpoint: /home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/runs/UR10Reacher/nn/UR10Reacher.pth
 headless: false
 wandb_activate: false
 wandb_group: ''
