@@ -134,7 +134,7 @@ class ReacherTask(RLTask):
             name="platform_view",
             reset_xform_properties=False,          
         )
-        self._platforms.disable_gravities() # trying to disable gravity for the platform
+        #self._platforms.disable_gravities() # trying to disable gravity for the platform
 
         scene.add(self._platforms) # Add platforms to scene
 
@@ -271,7 +271,6 @@ class ReacherTask(RLTask):
         object_pos = self.object_pos + self._env_pos
         object_rot = self.object_rot
         self._objects.set_world_poses(object_pos, object_rot)
-        print('goal_pos: ', self.goal_pos)
         # To fix the problem with the platform that it is falling down, i had to add self.platform_pos and self.platform_rot here, but this didn't work at first
         # because of subtracting the world evn pos, after removing that line the position was correct but the platform kept slowly sinking to the ground,
         # the reason is the negative torch.tensor in the z axis that is not called once but instead at every step so that the negative movment is added up.
@@ -356,7 +355,15 @@ class ReacherTask(RLTask):
         platform_pos[env_ids] = self.platform_pos[env_ids] + self._env_pos[env_ids] # add world env pos
         
         # set platform position in the scene in self._platforms
+        # Define the force to be applied. This should be a 3-element tensor representing the x, y, and z components of the force.
+        # For example, to apply an upward force of 9.81 * mass to counteract gravity:
+        #masses = self._platforms.get_masses()
+        #print('masses: ', masses)
+        #force = torch.tensor([0.0, 0.0, 3.6 * 9.81])
+        #self._platforms.apply_forces(forces=force, indices=indices) # trying to disable gravity for the platform
+        self._platforms.disable_rigid_body_physics() # trying to disable gravity for the platform
         self._platforms.set_world_poses(platform_pos[env_ids], platform_rot[env_ids], indices)
+        
         
 
     def reset_idx(self, env_ids):
