@@ -66,7 +66,10 @@ class BinFilling(BaseTask):
         super().set_up_scene(scene)
         add_reference_to_stage(usd_path=self._ur10_asset_path, prim_path="/World/Scene")
         self._ur10_robot = scene.add(
-            UR10(prim_path="/World/Scene/ur10", name="my_ur10", gripper_usd=None, attach_gripper=True)
+            UR10(prim_path="/World/Scene/ur10", 
+                 name="my_ur10", 
+                 gripper_usd=None, 
+                 attach_gripper=True)
         )
         self._ur10_robot.gripper.set_translate(value=0.162)
         self._ur10_robot.set_joints_default_state(

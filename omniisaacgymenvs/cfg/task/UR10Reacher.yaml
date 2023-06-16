@@ -35,7 +35,7 @@ env:
   distRewardScale: -2.0
   rotRewardScale: 1.0
   rotEps: 0.1
-  actionPenaltyScale: -0.0002
+  actionPenaltyScale: -0.00002 # -0.0002
   reachGoalBonus: 250
   velObsScale: 0.2
 
