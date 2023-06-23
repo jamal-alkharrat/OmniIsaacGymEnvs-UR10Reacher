@@ -130,7 +130,7 @@ class UR10ReacherTask(ReacherTask):
         return arm_view
 
     def get_object_displacement_tensor(self):
-        return torch.tensor([0.0, 0.05, 0.0], device=self.device).repeat((self.num_envs, 1))
+        return torch.tensor([0.195, 0.0, 0.0], device=self.device).repeat((self.num_envs, 1))
 
     def get_observations(self):
         self.arm_dof_pos = self._arms.get_joint_positions()

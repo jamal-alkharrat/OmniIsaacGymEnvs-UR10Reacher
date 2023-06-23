@@ -108,6 +108,7 @@ class ReacherTask(RLTask):
         self.get_object()
         self.get_goal()
         self.get_platform() 
+        #self._platform =scene.add(self.get_platform())
 
         super().set_up_scene(scene)
 
@@ -128,15 +129,15 @@ class ReacherTask(RLTask):
         )
         scene.add(self._goals)
 
-        # Define platforms view
-        self._platforms = RigidPrimView(
-            prim_paths_expr="/World/envs/env_.*/platform/pp/Cube",
-            name="platform_view",
-            reset_xform_properties=False,          
-        )
-        #self._platforms.disable_gravities() # trying to disable gravity for the platform
+        # # Define platforms view
+        # self._platforms = RigidPrimView(
+        #     prim_paths_expr="/World/envs/env_.*/platform/platform/Cube",
+        #     name="platform_view",
+        #     reset_xform_properties=False,          
+        # )
+        # #self._platforms.disable_gravities() # trying to disable gravity for the platform
 
-        scene.add(self._platforms) # Add platforms to scene
+        # scene.add(self._platforms) # Add platforms to scene
 
     @abstractmethod
     def get_num_dof(self):
@@ -195,11 +196,11 @@ class ReacherTask(RLTask):
     # Add platform
     def get_platform(self):
         self.platform_position = torch.tensor([1.0, 0.0, 0.5], device=self.device)
-        self.platform_scale = torch.tensor([(3, 4, 0.3)], device=self.device)
-        self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
+        self.platform_scale = torch.tensor([(0.3, 0.4, 0.03)], device=self.device)
+        self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/platform_instanceable_help.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
         platform = XFormPrim(
-        prim_path=self.default_zero_env_path + "/platform/pp/Cube",
+        prim_path=self.default_zero_env_path + "/platform/platform/Cube",
         name="platform",
         translation=self.platform_position,
         scale=self.platform_scale,
@@ -207,6 +208,7 @@ class ReacherTask(RLTask):
         )
         print('Path to help:' + self.default_zero_env_path)
         self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
+        return platform
     
     def post_reset(self):
         self.num_arm_dofs = self.get_num_dof()
@@ -228,9 +230,9 @@ class ReacherTask(RLTask):
         self.goal_pos, self.goal_rot = self._goals.get_world_poses()
         self.goal_pos -= self._env_pos
         
-        # Add self platform pos and rot for all envs as tensors
-        self.platform_pos, self.platform_rot = self._platforms.get_world_poses()
-        self.platform_pos -= self._env_pos # subtract world env pos so that platform is always at 0,0,0
+        # # Add self platform pos and rot for all envs as tensors
+        # self.platform_pos, self.platform_rot = self._platforms.get_world_poses()
+        # self.platform_pos -= self._env_pos # subtract world env pos so that platform is always at 0,0,0
 
         # randomize all envs
         indices = torch.arange(self._num_envs, dtype=torch.int64, device=self._device)
@@ -262,12 +264,26 @@ class ReacherTask(RLTask):
         # This function is called before the physics step, so it's called at the beginning of each step and for each env. 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
-
         end_effectors_pos, end_effectors_rot = self._arms._end_effectors.get_world_poses()
+        # unit vector along x-axis
+        #unit_vector = torch.tensor([1.0, 1.0, 1.0], device=self.device)
+
+        # rotate the unit vector by the end_effector's rotation
+        #direction_vector = quat_rotate(end_effectors_rot, unit_vector)
+
+
+        
         # Reverse the default rotation and rotate the displacement tensor according to the current rotation
-        self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot, quat_rotate_inverse(self.end_effectors_init_rot, self.get_object_displacement_tensor()))
-        self.object_pos -= self._env_pos # subtract world env pos
         self.object_rot = end_effectors_rot
+        #print('object_rot: ', self.object_rot) 
+        # now you can add this direction_vector to the end_effector's position
+        # to get the new object position
+       
+        self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot,self.get_object_displacement_tensor()) #quat_rotate_inverse(self.end_effectors_init_rot, self.get_object_displacement_tensor()))
+
+        #self.object_pos = torch.tensor([0.2, 0.0, 0.0], device=self.device) + end_effectors_pos + 
+        self.object_pos -= self._env_pos # subtract world env pos
+        
         object_pos = self.object_pos + self._env_pos
         object_rot = self.object_rot
         self._objects.set_world_poses(object_pos, object_rot)
@@ -359,14 +375,14 @@ class ReacherTask(RLTask):
         # But i couldn't manipulate the platform position for all envs. So i had to add self.platform_pos in post_reset() function.
         # Now i can manipulate the platform position for all envs to be under the goal. Alternatively i can randomize the platform position
         # and then add the goal position to be above the platform position.
-        self.platform_pos[env_ids] = self.goal_pos[env_ids] - torch.tensor([0.0, 0.0, 0.15], device=self.device)
+        # self.platform_pos[env_ids] = self.goal_pos[env_ids] - torch.tensor([0.0, 0.0, 0.15], device=self.device)
         
         
-        platform_pos, platform_rot = self.platform_pos.clone(), self.platform_rot.clone()
-        platform_pos[env_ids] = self.platform_pos[env_ids] + self._env_pos[env_ids] # add world env pos
+        # platform_pos, platform_rot = self.platform_pos.clone(), self.platform_rot.clone()
+        # platform_pos[env_ids] = self.platform_pos[env_ids] + self._env_pos[env_ids] # add world env pos
         
-        # set platform position in the scene in self._platforms
-        self._platforms.set_world_poses(platform_pos[env_ids], platform_rot[env_ids], indices)
+        # # set platform position in the scene in self._platforms
+        # self._platforms.set_world_poses(platform_pos[env_ids], platform_rot[env_ids], indices)
         
         
 
