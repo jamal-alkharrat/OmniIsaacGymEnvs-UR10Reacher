@@ -177,8 +177,8 @@ class ReacherTask(RLTask):
         self._sim_config.apply_articulation_settings("object", get_prim_at_path(obj.prim_path), self._sim_config.parse_actor_config("object"))
 
     def get_goal(self):
-        self.goal_displacement_tensor = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-        self.goal_start_translation = torch.tensor([0.0, 0.0, 0.0], device=self.device) + self.goal_displacement_tensor
+        self.goal_displacement_tensor = torch.tensor([0.0, 0.0, 0.1], device=self.device)
+        self.goal_start_translation = torch.tensor([1.0, 0.0, 0.5], device=self.device) + self.goal_displacement_tensor
         self.goal_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
 
         self.goal_usd_path = f"{self._assets_root_path}/Isaac/Props/Goal/block_instanceable.usd"
@@ -194,7 +194,7 @@ class ReacherTask(RLTask):
         
     # Add platform
     def get_platform(self):
-        self.platform_position = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+        self.platform_position = torch.tensor([1.0, 0.0, 0.5], device=self.device)
         self.platform_scale = torch.tensor([(3, 4, 0.3)], device=self.device)
         self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/pp_instanceable.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
@@ -274,18 +274,29 @@ class ReacherTask(RLTask):
         # To fix the problem with the platform that it is falling down, i had to add self.platform_pos and self.platform_rot here, but this didn't work at first
         # because of subtracting the world evn pos, after removing that line the position was correct but the platform kept slowly sinking to the ground,
         # the reason is the negative torch.tensor in the z axis that is not called once but instead at every step so that the negative movment is added up.
-        # new_platform_pos = self.goal_pos #- torch.tensor([0.0, 0.0, 0.15], device=self.device)
-        # self.platform_pos = new_platform_pos
+        #new_platform_pos = self.goal_pos - torch.tensor([0.0, 0.0, 0.15], device=self.device)
+        #self.platform_pos = new_platform_pos
         # print('platform_pos: ', self.platform_pos)
-        # #self.platform_pos -= self._env_pos # subtract world env pos
+        #self.platform_pos -= self._env_pos # subtract world env pos
+        # indices = env_ids.to(dtype=torch.int32)
+        # platform_pos, platform_rot = self.platform_pos.clone(), self.platform_rot.clone()
+        # platform_pos[env_ids] = self.platform_pos[env_ids] + self._env_pos[env_ids] # add world env pos
+        
+        # # set platform position in the scene in self._platforms
+        # self._platforms.set_world_poses(platform_pos[env_ids], platform_rot[env_ids], indices)
+        
         # platform_pos = self.platform_pos + self._env_pos
-        # self._platforms.set_world_poses(platform_pos, self.platform_rot)
+        # platform_rot_static = torch.full((len(env_ids), 4), 1.0, device=self.device)
+
+        # platform_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
+        # print('platform_rot: ', platform_rot)
+        # self._platforms.set_world_poses(platform_pos, platform_rot)
 
         # if only goals need reset, then call set API
-        if len(goal_env_ids) > 0 and len(env_ids) == 0:
-            self.reset_target_pose(goal_env_ids)
-        elif len(goal_env_ids) > 0:
-            self.reset_target_pose(goal_env_ids)
+        # if len(goal_env_ids) > 0 and len(env_ids) == 0:
+        #     self.reset_target_pose(goal_env_ids)
+        # elif len(goal_env_ids) > 0:
+        #     self.reset_target_pose(goal_env_ids)
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
 
@@ -355,13 +366,6 @@ class ReacherTask(RLTask):
         platform_pos[env_ids] = self.platform_pos[env_ids] + self._env_pos[env_ids] # add world env pos
         
         # set platform position in the scene in self._platforms
-        # Define the force to be applied. This should be a 3-element tensor representing the x, y, and z components of the force.
-        # For example, to apply an upward force of 9.81 * mass to counteract gravity:
-        #masses = self._platforms.get_masses()
-        #print('masses: ', masses)
-        #force = torch.tensor([0.0, 0.0, 3.6 * 9.81])
-        #self._platforms.apply_forces(forces=force, indices=indices) # trying to disable gravity for the platform
-        self._platforms.disable_rigid_body_physics() # trying to disable gravity for the platform
         self._platforms.set_world_poses(platform_pos[env_ids], platform_rot[env_ids], indices)
         
         
@@ -370,7 +374,7 @@ class ReacherTask(RLTask):
         indices = env_ids.to(dtype=torch.int32)
         rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), self.num_arm_dofs * 2 + 5), device=self.device)
 
-        self.reset_target_pose(env_ids)
+        #self.reset_target_pose(env_ids)
 
         # reset arm
         delta_max = self.arm_dof_upper_limits - self.arm_dof_default_pos

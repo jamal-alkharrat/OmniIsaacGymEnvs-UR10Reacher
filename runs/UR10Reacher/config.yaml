@@ -38,7 +38,7 @@ task:
     gravity:
     - 0.0
     - 0.0
-    - -9.81
+    - 0.0
     add_ground_plane: true
     add_distant_light: true
     use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
@@ -71,7 +71,7 @@ task:
     ur10:
       override_usd_defaults: false
       fixed_base: false
-      enable_self_collisions: false
+      enable_self_collisions: true
     object:
       override_usd_defaults: false
       fixed_base: true
@@ -86,6 +86,17 @@ task:
     goal_object:
       override_usd_defaults: false
       fixed_base: true
+      enable_self_collisions: false
+      enable_gyroscopic_forces: true
+      solver_position_iteration_count: 8
+      solver_velocity_iteration_count: 0
+      sleep_threshold: 0.0
+      stabilization_threshold: 0.0025
+      density: -1
+      max_depenetration_velocity: 1000.0
+    platform_object:
+      fixed_base: true
+      override_usd_defaults: false
       enable_self_collisions: false
       enable_gyroscopic_forces: true
       solver_position_iteration_count: 8
