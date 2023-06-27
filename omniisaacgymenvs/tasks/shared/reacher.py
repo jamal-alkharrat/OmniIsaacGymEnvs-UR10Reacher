@@ -143,7 +143,8 @@ class ReacherTask(RLTask):
         
         # #Short Gripper
 
-        self.target_pos = torch.tensor([1.0, 2.0, 3.0], device=self.device) 
+        self.target_position = torch.tensor([0.5, 0.2, 0.1], device=self.device) 
+        self.target_pos = torch.tensor([0, 0, 0.5], device=self.device) 
         self._is_moving = False
         self.start=False
         self._upright = False
@@ -159,7 +160,7 @@ class ReacherTask(RLTask):
                 self.sm[s][e] = self._empty
                 self.thresh[s] = 0
 
-        self.sm[UR10_states.STANDBY][UR10_events.START] = self._standby_start()
+        self.sm[UR10_states.STANDBY][UR10_events.START] = self._standby_start
         self.sm[UR10_states.STANDBY][UR10_events.GOAL_REACHED] = self._standby_goal_reached
         self.thresh[UR10_states.STANDBY] = 3
 
@@ -284,7 +285,7 @@ class ReacherTask(RLTask):
         #self._events = omni.usd.get_context().get_stage_event_stream()
         #######
     def get_object(self):
-        self.object_start_translation = torch.tensor([0.2, 0.2, 0.1], device=self.device)
+        self.object_start_translation = self.target_pos
         self.object_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/object")
@@ -349,6 +350,9 @@ class ReacherTask(RLTask):
         ####
         #Added from William Rodmann
         self._ur10._gripper.open()
+        print("STATE:", self.current_state)
+        self.change_state(UR10_states.PICKING)
+        print("STATE:", self.current_state)        
         ####
 
 
@@ -392,7 +396,6 @@ class ReacherTask(RLTask):
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
         self._ur10._gripper.update()
-
         end_effectors_pos, end_effectors_rot = self._arms._end_effectors.get_world_poses()
         object_dist = torch.norm(end_effectors_pos - self.object_pos, p=2, dim=-1)
         # if only goals need reset, then call set API
@@ -498,9 +501,6 @@ class ReacherTask(RLTask):
         indices = env_ids.to(dtype=torch.int32)
         rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), self.num_arm_dofs * 2 + 5), device=self.device)
 
-        #self.reset_target_pose(env_ids)
-        #self.move_platform(env_ids,10)
-
         # reset arm
         delta_max = self.arm_dof_upper_limits - self.arm_dof_default_pos
         delta_min = self.arm_dof_lower_limits - self.arm_dof_default_pos
@@ -527,9 +527,30 @@ class ReacherTask(RLTask):
         self.reset_buf[env_ids] = 0
         self.successes[env_ids] = 0
 
-        ########################
-        #Added from William Rodmann
-        ########################
+        #self.reset_target_pose(env_ids)
+        #self.move_platform(env_ids,10)
+        #### Added from William Rodmann
+        self.current_state = UR10_states.STANDBY
+        self._ur10._gripper.open()
+        self._closed = False
+        self.start = False
+        self.move_to_target()
+
+        if self.current_state == UR10_states.STANDBY: #and self.get_target():# and self.start:
+            print("Ich bin Standby and Start")
+
+            self.sm[self.current_state][UR10_events.START]()
+        elif self.goalReached:
+            self.sm[self.current_state][UR10_events.GOAL_REACHED]()
+
+        print("Ich geh weiter bei reset_idx")
+        ####
+
+        
+
+########################
+#Added from William Rodmann
+########################
 
     def move_platform(self, env_ids, steps):
         indices = env_ids.to(dtype=torch.int32)
@@ -558,21 +579,28 @@ class ReacherTask(RLTask):
     # def _placing_goal_reached(self, *args): 
     #     return
 
-    # def goalReached(self):
-    #     if self._is_moving:
-    #         state = self._ur10
-    #         return True
-    #     return False
-
+    
     #######
     #Helpfunctions
+
+    def goalReached(self):
+        end_effector_pos, end_effector_rot = self._arms._end_effectors.get_world_poses()
+        target_position = self.target_pos
+        if self._is_moving:
+            goal_dist = torch.norm(end_effector_pos - target_position,p=2, dim=-1)
+            if goal_dist < self.success_tolerance:
+                print("Ich habe das Goal erreicht")
+                self._is_moving = False
+                return True
+        return False
+
 
     def change_state(self, new_state):
         """
         Function called every time a event handling changes current state
         """
         self.current_state = new_state
-        self.start_time = self._time
+        #self.start_time = self._time
         carb.log_warn(str(new_state))
 
     def get_current_state_tr(self):
@@ -615,22 +643,24 @@ class ReacherTask(RLTask):
     def move_to_target(self):
         target_position= self.target_pos
         self._is_moving = True
-        
-        orig = target_position.detach().cpu().numpy()
-        
-        axis_y = np.array(math_utils.get_basis_vector_y(target_position.detach().cpu().numpy().item(1)))
-        axis_z = np.array(math_utils.get_basis_vector_z(target_position.detach().cpu().numpy().item(2)))
-        print(axis_y,axis_z, "help")
 
-        self._ur10.end_effector.go_local(
-            orig=orig,
-            axis_x=[],
-            axis_y=axis_y,
-            axis_z=axis_z,
-            use_default_config=True,
-            wait_for_target=False,
-            wait_time=5.0,
-        )
+        print("Ich bewege mich")
+        
+        # orig = target_position.detach().cpu().numpy()
+        
+        # axis_y = np.array(math_utils.get_basis_vector_y(target_position.detach().cpu().numpy().item(1)))
+        # axis_z = np.array(math_utils.get_basis_vector_z(target_position.detach().cpu().numpy().item(2)))
+        # print(axis_y,axis_z, "help")
+
+        # self._ur10.end_effector.go_local(
+        #     orig=orig,
+        #     axis_x=[],
+        #     axis_y=axis_y,
+        #     axis_z=axis_z,
+        #     use_default_config=True,
+        #     wait_for_target=False,
+        #     wait_time=5.0,
+        # )
 
     def get_target(self):
         origin = (-0.360, 0.440, -0.500)
@@ -641,6 +671,18 @@ class ReacherTask(RLTask):
             return True
         self.current = None
         return False
+    
+    def move_to_zero(self):
+        self._is_moving = False
+        # self._ur10._end_effector.go_local(
+        #     orig=[],
+        #     axis_x=[],
+        #     axis_y=[],
+        #     axis_z=[],
+        #     use_default_config=True,
+        #     wait_for_target=False,
+        #     wait_time=5.0,
+        # )
 
     #####
     #Main Functions
@@ -653,8 +695,8 @@ class ReacherTask(RLTask):
         
     def _standby_start(self):
 
-
-        self.move_to_target()
+        print("Funktion Standby Start")
+        self.target_pos = self.target_position
         self.change_state(UR10_states.PICKING)
 
     def _standby_goal_reached(self):
@@ -663,31 +705,11 @@ class ReacherTask(RLTask):
 
     def _picking_goal_reached(self):
 
-        obj, distance = self.ray_cast()
-        if obj is not None:
-                # Set target towards surface of the bin
-                tr = self.get_current_state_tr()
-                offset = _dynamic_control.Transform()
-                offset.p = (distance + 0.0015, 0, 0)
-
-                target = math_utils.mul(tr, offset)
-                # target.p = math_utils.mul(target.p, 0.01)
-                offset.p.x = -0.05
-                pre_target = math_utils.mul(target, offset)
-                # self.lerp_to_pose(pre_target, n_waypoints=90)
-                # self.lerp_to_pose(target, n_waypoints=60)
-                # self.lerp_to_pose(target, n_waypoints=30)
-                #self.target_position = self.waypoints.popleft()
-                self.move_to_target()
-                # Check if bin is upright or not
-                if self._upright:
-                    # Ignore the bin holder obstacle to allow to enter the crevice to drop the bin
-                    self.bin_holder_object.suppress()
-                # Move to attach state
-                self.change_state(UR10_states.ATTACH)
+        ###Start AI and reach the goal
+        self.change_state(UR10_states.ATTACH)
 
     def _placing_goal_reached(self):
-        # Hier greift die KI ein
+        # Hier greift die AI ein
         pass
 
     def _attach_goal_reached(self):
@@ -698,7 +720,7 @@ class ReacherTask(RLTask):
         else:
             offset = _dynamic_control.Transform()
             offset.p = (-0.25, 0.0, 0.0)
-            self.target_position = math_utils.mul(self.target_position, offset)
+            self.target_pos = math_utils.mul(self.target_pos, offset)
             self.move_to_target()
             self.change_state(UR10_states.PICKING)
 
