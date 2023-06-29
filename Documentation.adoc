@@ -3,7 +3,7 @@ Jamal Alkharrat
 William Rodmann
 :toc:
 :source-highlighter: highlight.js
-:toc-title: Inhaltsverzeichnis
+:toc-title: Table of contents
 
 == Introduction
 
