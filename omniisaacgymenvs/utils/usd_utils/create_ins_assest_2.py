@@ -52,7 +52,7 @@ if __name__ == '__main__':
     create_ur10_mesh(ur10_usd_path, ur10_mesh_usd_path)
     create_ur10_instanceable(ur10_mesh_usd_path, ur10_instanceable_usd_path)
     
-
+#### Second Method (works better for platform)
 
 import omni.usd
 import omni.client
@@ -90,7 +90,6 @@ def create_parent_xforms(asset_usd_path, source_prim_path, save_as_path=None):
     if save_as_path is None:
         omni.usd.get_context().save_stage()
     else:
-        print("Hier war ich")
         omni.usd.get_context().save_as_stage(save_as_path)
 
 

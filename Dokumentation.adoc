@@ -1,0 +1,163 @@
+= Dokumentation des UR10-Reacher-Projekts
+Jamal Alkharrat 
+William Rodmann
+:toc:
+:source-highlighter: highlight.js
+:toc-title: Inhaltsverzeichnis
+
+== Einführung
+
+Dieses Projekt zielt darauf ab, einen Ki-gesteuerten Pick-and-Place Roboterarm zu entwickeln, der Objekte in einer Umgebung erkennen, greifen und an einem anderen Ort ablegen kann.
+
+Die Verwendung von künstlicher Intelligenz ermöglicht präzise Steuerung und kontinuierliche Verbesserungen des Arms. 
+
+Am Ende wird ein funktionsfähiger Prototyp des Roboterarms entwickelt sein, der in der Lage ist, Objekte sicher und effizient zu handhaben. 
+
+== Projektbeschreibung
+
+== Technologien
+.Für das Projekt werden folgende Technologien verwendet:
+ Nvidia Omniverse Isaac Gym 2022.1.1
+ Python 3.11
+
+== Projektstruktur
+
+.verwendete Dateien für instancable Objekte:
+- OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/utils/usd_utils/create_ins_assest_2.py
+- OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/utils/usd_utils/create_instanceable_ur10.py
+
+.verwendete Dateien für UR10 Roboterarm:
+- OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/tasks/ur10_reacher.py
+- OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/robots/articulations/ur10_copy.py
+- OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/tasks/shared/reacher.py
+
+.verwendete yaml Dateien:
+- OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/cfg/task/UR10Reacher.yaml
+- OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/cfg/train/UR10ReacherPPO.yaml
+
+
+== Installation
+Projekt URL auf Github: https://github.com/s82035/OmniIsaacGymEnvs-UR10Reacher
+Anleitung in der README.md Datei folgen.
+
+== Entwickelte Features
+.Die folgenden Features wurden im Rahmen des Projekts entwickelt:
+1. UR10 Roboter Arm zu einem Roboter Arm mit kurzem Saugmodul umgewandelt
+2. Stabilisierung des Ziels, Zufälligkeit der Position des Ziels entfernt
+3. Zielplattform eingefügt
+
+.Zusätzliche Features:
+1. Sensoren hinzugefügt
+2. Unterteilung in verschiedene States 
+3. Platform für zufällige Ziele
+
+=== Feature 1: UR10 Roboter Arm zu einem Roboter Arm mit kurzem Saugmodul umgewandelt
+
+Der UR10 Roboterarm wurde zu einem Roboterarm mit kurzem Saugmodul umgewandelt. Dazu wurde das vorgefertigte Nvidia Short Suction Modell in ein Instancable Modell umgewandelt mit der create_instanceable_ur10.py Datei.
+
+Die URL des Modells wurde in der ur10.py Datei geändert.
+
+[,ruby]
+----
+include::/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/robots/articulations/ur10_copy.py[lines=74..74]
+---- 
+
+In die UR10.py Datei wurden folgende Änderungen vorgenommen:
+
+[,ruby]
+----
+include::/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/robots/articulations/ur10_copy.py[lines=50..169]
+----
+
+=== Feature 2: Stabilisierung des Ziels, Zufälligkeit der Position des Ziels entfernt
+
+In pre_physics_step() die zufälligen Positionen auskommentieren
+
+[,ruby]
+----
+include::/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/tasks/shared/reacher.py[lines=315..321]
+----
+
+In reset_target_pose() alles auskommentieren, bis auf "self.reset_goal_buf[env_ids] = 0" (wichtig für Rewardberechnung)
+
+[,ruby]
+----
+include::/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/tasks/shared/reacher.py[lines=358..390]
+----
+
+=== Feature 3: Zielplattform eingefügt
+
+Eine neue Platform.usd erstellen und mit der Datei: create_ins_asset_2.py im Script-Editor von Omniverse Isaac Gym ausführen.
+[,ruby]
+----
+inlcude::/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/utils/usd_utils/create_ins_assest_2.py[lines=1..97]
+----
+Eine instancable Platform.usd wird erstellt.
+
+Einbindung in reacher.py
+
+Erstellung einer neuen Funktion get_platform():
+[,ruby]
+----
+include::/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/tasks/shared/reacher.py[lines=200..214]
+----
+
+Aufruf in der setup_scene() Funktion:
+[,ruby]
+----
+include::/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/tasks/shared/reacher.py[lines=113..113]
+----
+
+=== Zusätzliche Features
+
+==== Feature 1: Sensoren hinzugefügt
+
+1. In ur10_reacher.py wurde folgender Lines hinzugefügt:
+
+Imports:
+[,ruby]
+----
+from omni.isaac.isaac_sensor import _isaac_sensor
+----
+
+in def _init():
+[,ruby]
+----
+self._cs = _isaac_sensor.acquire_contact_sensor_interface()
+----
+in def get_arm():
+[,ruby]
+----
+result, sensor = omni.kit.commands.execute(
+    "IsaacSensorCreateContactSensor",
+    path="/sensor",
+    parent=self.default_zero_env_path + "/ur10/wrist_2_link",
+    min_threshold=0,
+    max_threshold=10000000,
+    color=(1, 0, 0, 1),
+    radius=0.12,
+    sensor_period=-1,
+    translation=Gf.Vec3d(0,0,0),
+    visualize=True,)#
+
+    
+
+self._events = omni.usd.get_context().get_stage_event_stream()
+self._stage_event_subscription = self._events.create_subscription_to_pop(
+    self._on_stage_event, name="Contact Sensor Sample stage Watch"
+)
+----
+
+2. In reacher.py wurde folgender Lines hinzugefügt:
+
+in def __init__():
+[,ruby]
+----
+self._cs = _isaac_sensor.acquire_contact_sensor_interface()
+----
+
+==== Feature 2: Unterteilung in verschiedene States
+Um die Aufgaben der KI in unterschiedliche Bereiche zu unterteilen, wurden die States in der reacher.py Datei eingeführt. Das Ziel ist es die Aufgaben der KI oder mehrerer KIś in verschiedene Bereiche zu unterteilen.
+
+==== Feature 3: Platform für zufällige Ziele
+== Fazit
