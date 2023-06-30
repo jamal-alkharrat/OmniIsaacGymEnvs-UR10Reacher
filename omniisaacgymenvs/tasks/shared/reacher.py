@@ -461,9 +461,14 @@ def compute_arm_reward(
     #platform_height = platform_pos[:, 2]
     #print('object_height: ', object_height[0])
     height_penalty = torch.where(goal_height > object_height,goal_height - object_height  , torch.zeros_like(goal_height))
+    
+    # Penalize when the object hits the platform
+    #object_platform_dist = torch.sqrt(torch.square(object_pos - platform_pos).sum(-1))
+    #platform_penalty = torch.where(object_platform_dist < 0.01, torch.ones_like(object_platform_dist), torch.zeros_like(object_platform_dist))
+    #print('platform_penalty: ', platform_penalty[0])
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
     #print('height_penalty: ', height_penalty)
-    reward = dist_rew + action_penalty * action_penalty_scale - height_penalty
+    reward = dist_rew + action_penalty * action_penalty_scale + height_penalty
     #print('reward: ', reward[0])
     # Find out which envs hit the goal and update successes count
     goal_resets = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf), reset_goal_buf)
