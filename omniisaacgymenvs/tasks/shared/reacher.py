@@ -242,11 +242,12 @@ class ReacherTask(RLTask):
         self.reset_idx(indices)
 
     def calculate_metrics(self):
+        end_effector_pos, end_effector_rot = self._arms._end_effectors.get_world_poses()
         self.fall_dist = 0
         self.fall_penalty = 0
         self.rew_buf[:], self.reset_buf[:], self.reset_goal_buf[:], self.progress_buf[:], self.successes[:], self.consecutive_successes[:] = compute_arm_reward(
             self.rew_buf, self.reset_buf, self.reset_goal_buf, self.progress_buf, self.successes, self.consecutive_successes,
-            self.max_episode_length, self.object_pos, self.object_rot, self.goal_pos, self.goal_rot,
+            self.max_episode_length, self.object_pos, self.object_rot, self.goal_pos, self.goal_rot, end_effector_pos, end_effector_rot,
             self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
             self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
             self.max_consecutive_successes, self.av_factor,
@@ -278,14 +279,14 @@ class ReacherTask(RLTask):
 
         
         # Reverse the default rotation and rotate the displacement tensor according to the current rotation
-        self.object_rot = end_effectors_rot
+        #self.object_rot = end_effectors_rot
         #print('object_rot: ', self.object_rot) 
         # now you can add this direction_vector to the end_effector's position
         # to get the new object position
        
-        self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot,self.get_object_displacement_tensor()) #quat_rotate_inverse(self.end_effectors_init_rot, self.get_object_displacement_tensor()))
+        #self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot,self.get_object_displacement_tensor()) #quat_rotate_inverse(self.end_effectors_init_rot, self.get_object_displacement_tensor()))
 
-        #self.object_pos = torch.tensor([0.2, 0.0, 0.0], device=self.device) + end_effectors_pos + 
+        self.object_pos = torch.tensor([1.0, 1.0, 0.5], device=self.device) 
         self.object_pos -= self._env_pos # subtract world env pos
         
         object_pos = self.object_pos + self._env_pos
@@ -435,7 +436,7 @@ def randomize_rotation(rand0, rand1, x_unit_tensor, y_unit_tensor):
 @torch.jit.script
 def compute_arm_reward(
     rew_buf, reset_buf, reset_goal_buf, progress_buf, successes, consecutive_successes,
-    max_episode_length: float, object_pos, object_rot, target_pos, target_rot,
+    max_episode_length: float, object_pos, object_rot, target_pos, target_rot, end_effector_pos, end_effector_rot,
     dist_reward_scale: float, rot_reward_scale: float, rot_eps: float,
     actions, action_penalty_scale: float,
     success_tolerance: float, reach_goal_bonus: float, fall_dist: float,
@@ -444,7 +445,11 @@ def compute_arm_reward(
 ):
 
     #goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
-    goal_dist = torch.sqrt(torch.square(target_pos - object_pos).sum(-1))
+    #goal_dist = torch.sqrt(torch.square(target_pos - object_pos).sum(-1))
+
+    #### Try UR10_end_effector to Object ####
+    goal_dist = torch.sqrt(torch.square(end_effector_pos - object_pos).sum(-1))
+
     #print('goal_dist: ', goal_dist)
     #print('goal_dist: ', goal_dist)
     # Orientation alignment for the cube in hand and goal cube
