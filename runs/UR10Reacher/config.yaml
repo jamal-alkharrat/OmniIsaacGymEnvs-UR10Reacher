@@ -188,7 +188,7 @@ train:
         print_stats: true
 task_name: ${task.name}
 experiment: ''
-num_envs: 100
+num_envs: 200
 seed: 42
 torch_deterministic: false
 max_iterations: ''
@@ -199,9 +199,9 @@ device_id: 0
 rl_device: cuda:0
 num_threads: 4
 solver_type: 1
-test: true
-checkpoint: /root/RLrepo/OmniIsaacGymEnvs-UR10Reacher/runs/UR10Reacher/nn/UR10Reacher_ep_197_rew_110486.16.pth
-headless: false
+test: false
+checkpoint: ''
+headless: true
 wandb_activate: false
 wandb_group: ''
 wandb_name: ${train.params.config.name}

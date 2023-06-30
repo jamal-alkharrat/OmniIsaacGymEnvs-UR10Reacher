@@ -106,7 +106,8 @@ class ReacherTask(RLTask):
 
     def set_up_scene(self, scene: Scene) -> None:
         self._stage = get_current_stage()
-        self._assets_root_path = '/root/RLrepo/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1'
+        #self._assets_root_path = '/root/RLrepo/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1'
+        self._assets_root_path = '/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1'
         self.get_arm()
         self.get_object()
         self.get_goal()
@@ -167,7 +168,7 @@ class ReacherTask(RLTask):
         pass
 
     def get_object(self):
-        self.object_start_translation = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+        self.object_start_translation = torch.tensor([1.0, 1.0, 0.5], device=self.device)
         self.object_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/object")
@@ -230,6 +231,9 @@ class ReacherTask(RLTask):
 
         self.end_effectors_init_pos, self.end_effectors_init_rot = self._arms._end_effectors.get_world_poses()
 
+        self.object_pos, self.object_rot = self._objects.get_world_poses()
+        self.object_pos -= self._env_pos
+
         self.goal_pos, self.goal_rot = self._goals.get_world_poses()
         self.goal_pos -= self._env_pos
         
@@ -266,64 +270,22 @@ class ReacherTask(RLTask):
                 print("Post-Reset average consecutive successes = {:.1f}".format(self.total_successes/self.total_resets))
 
     def pre_physics_step(self, actions):
-        # This function is called before the physics step, so it's called at the beginning of each step and for each env. 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
+        #self._ur10._gripper.update()
         end_effectors_pos, end_effectors_rot = self._arms._end_effectors.get_world_poses()
-        # unit vector along x-axis
-        #unit_vector = torch.tensor([1.0, 1.0, 1.0], device=self.device)
-
-        # rotate the unit vector by the end_effector's rotation
-        #direction_vector = quat_rotate(end_effectors_rot, unit_vector)
-
-
-        
-        # Reverse the default rotation and rotate the displacement tensor according to the current rotation
-        #self.object_rot = end_effectors_rot
-        #print('object_rot: ', self.object_rot) 
-        # now you can add this direction_vector to the end_effector's position
-        # to get the new object position
-       
-        #self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot,self.get_object_displacement_tensor()) #quat_rotate_inverse(self.end_effectors_init_rot, self.get_object_displacement_tensor()))
-
-        self.object_pos = torch.tensor([1.0, 1.0, 0.5], device=self.device) 
-        self.object_pos -= self._env_pos # subtract world env pos
-        
-        object_pos = self.object_pos + self._env_pos
-        object_rot = self.object_rot
-        self._objects.set_world_poses(object_pos, object_rot)
-        # To fix the problem with the platform that it is falling down, i had to add self.platform_pos and self.platform_rot here, but this didn't work at first
-        # because of subtracting the world evn pos, after removing that line the position was correct but the platform kept slowly sinking to the ground,
-        # the reason is the negative torch.tensor in the z axis that is not called once but instead at every step so that the negative movment is added up.
-        #new_platform_pos = self.goal_pos - torch.tensor([0.0, 0.0, 0.15], device=self.device)
-        #self.platform_pos = new_platform_pos
-        # print('platform_pos: ', self.platform_pos)
-        #self.platform_pos -= self._env_pos # subtract world env pos
-        # indices = env_ids.to(dtype=torch.int32)
-        # platform_pos, platform_rot = self.platform_pos.clone(), self.platform_rot.clone()
-        # platform_pos[env_ids] = self.platform_pos[env_ids] + self._env_pos[env_ids] # add world env pos
-        
-        # # set platform position in the scene in self._platforms
-        # self._platforms.set_world_poses(platform_pos[env_ids], platform_rot[env_ids], indices)
-        
-        # platform_pos = self.platform_pos + self._env_pos
-        # platform_rot_static = torch.full((len(env_ids), 4), 1.0, device=self.device)
-
-        # platform_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
-        # print('platform_rot: ', platform_rot)
-        # self._platforms.set_world_poses(platform_pos, platform_rot)
-
+        object_dist = torch.norm(end_effectors_pos - self.object_pos, p=2, dim=-1)
         # if only goals need reset, then call set API
-        # if len(goal_env_ids) > 0 and len(env_ids) == 0:
-        #     self.reset_target_pose(goal_env_ids)
-        # elif len(goal_env_ids) > 0:
-        #     self.reset_target_pose(goal_env_ids)
+        #if len(goal_env_ids) > 0 and len(env_ids) == 0:
+        #    self.reset_target_pose(goal_env_ids)
+        #elif len(goal_env_ids) > 0:
+        #    self.reset_target_pose(goal_env_ids)
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
 
         self.actions = actions.clone().to(self.device)
         # Reacher tasks don't require gripper actions, disable it.
-        self.actions[:, 5] = 0.0
+        #self.actions[:, 5] = 0.0
 
         if self.use_relative_control:
             targets = self.prev_targets[:, self.actuated_dof_indices] + self.arm_dof_speed_scale * self.dt * self.actions
@@ -342,6 +304,20 @@ class ReacherTask(RLTask):
         self._arms.set_joint_position_targets(
             self.cur_targets[:, self.actuated_dof_indices], indices=None, joint_indices=self.actuated_dof_indices
         )
+
+        #print(object_dist)
+        #Apply the gripper action
+        
+        gripper_actions = self.actions[:, 5].to(dtype=torch.int64)
+        for i, action in enumerate(gripper_actions):
+            if object_dist[i] < 0.1:
+                if action.item() == 0: # Open the gripper
+                    #print('open gripper')
+                    self._ur10._gripper.open()
+                else: # Close the gripper
+                    #print('close gripper')
+                    self._ur10._gripper.close()
+
         if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
             # Only retrieve the 0-th joint position even when multiple envs are used
             cur_joint_pos = self._arms.get_joint_positions(indices=[0], joint_indices=self.actuated_dof_indices)
@@ -351,7 +327,6 @@ class ReacherTask(RLTask):
                 print("get_joint_positions out of bound, send_joint_pos skipped")
             else:
                 self.send_joint_pos(joint_pos)
-
 
     def is_done(self):
         pass

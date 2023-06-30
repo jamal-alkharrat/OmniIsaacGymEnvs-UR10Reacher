@@ -52,7 +52,7 @@ class UR10(Robot):
             assets_root_path = get_assets_root_path()
             if assets_root_path is None:
                 carb.log_error("Could not find Isaac Sim assets folder")
-            self._usd_path = "/root/RLrepo/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1/Isaac/Robots/UR10/ur10_short_suction_instanceable.usd"
+            self._usd_path = "/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/Isaac/2022.1/Isaac/Robots/UR10/ur10_short_suction_instanceable.usd"
 
         # Depends on your real robot setup
         self._position = torch.tensor([0.0, 0.0, 0.0]) if translation is None else translation
