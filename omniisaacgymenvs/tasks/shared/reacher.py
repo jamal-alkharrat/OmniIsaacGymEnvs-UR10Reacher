@@ -268,22 +268,6 @@ class ReacherTask(RLTask):
         )
         self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
 
-        #####
-        #Sensor form William Rodmann
-        #result, sensor = omni.kit.commands.execute(
-        #    "IsaacSensorCreateContactSensor",
-        #    path="/sensor",
-        #    parent=self.default_zero_env_path + "/platform",
-        #    min_threshold=0,
-        #    max_threshold=10000000,
-        #    color=(1, 0, 0, 0),
-        #    radius=0.12,
-        #    sensor_period=-1,
-        #    translation=self.paltform_pos,
-         #   visualize=True,)
-
-        #self._events = omni.usd.get_context().get_stage_event_stream()
-        #######
     def get_object(self):
         self.object_start_translation = self.target_pos
         self.object_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
@@ -736,7 +720,7 @@ class ReacherTask(RLTask):
             self._closed = False
             self._detached = True
             self.thresh[UR10_states.DETACH] = 3
-        #else fehl / vieles nicht eingefügt
+        #else fehlt / vieles nicht eingefügt
     def _detach_detached(self):
         offset = _dynamic_control.Transform()
         #Arm nach oben bewegen 
@@ -772,23 +756,23 @@ def compute_arm_reward(
 
 
     #goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
-    #print(f"goal_dist: {goal_dist[0]}")
+    
+
     # Orientation alignment for the cube in hand and goal cube
     quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
     rot_dist = 2.0 * torch.asin(torch.clamp(torch.norm(quat_diff[:, 1:4], p=2, dim=-1), max=1.0)) # changed quat convention
 
     #dist_rew = goal_dist * dist_reward_scale
+    #### experimental Distance Reward ####
     dist_rew= 1.0 / (2 * goal_dist)
-    #print(f"dist_rew: {goal_dist[0]}")
     rot_rew = 1.0/(torch.abs(rot_dist) + rot_eps) * rot_reward_scale
    
 
     action_penalty = torch.sum(actions ** 2, dim=-1)
-     # effort reward
+    # effort reward
     effort = torch.square(actions).sum(-1)
+    #### experimental Effort Reward ####
     effort_reward = 0.05 * torch.exp(-0.5 * effort)
-    #print(f"action_penalty: {action_penalty[0]}")
-    #print(f"action_penalty_scale: {action_penalty_scale}")
 
     # large positive reward for picking up the object
     # pickup_reward = (goal_dist < 0.1).float() * 100.0
@@ -804,11 +788,10 @@ def compute_arm_reward(
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
     #reward = dist_rew + action_penalty * action_penalty_scale #+ rot_rew
 
-    #Test Wiliam
-    #print(f"goal_dist {goal_dist[0]}")
-
+    #### Added from William Rodmann ####
     #reward = dist_rew-  action_penalty * action_penalty_scale
     reward = dist_rew + action_penalty * action_penalty_scale #+ rot_rew + success_reward
+    ####################################
 
     #print(f"dist: {goal_dist[0]}")
 
@@ -820,14 +803,6 @@ def compute_arm_reward(
     # reward = torch.where(goal_resets == 1, reward + reach_goal_bonus, reward)
     # print('reward: ' + str(reward))
     #reward = torch.where(torch.abs(goal_dist) <= success, goal_rot _tolerance, reward + reach_goal_bonus, reward)
-
-    #Leave Goal                             condition                    input      otherwise
-    #goal_penalty = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf),reset_goal_buf)
-    #print(f"goal_penalty:{goal_penalty[0]}, goal_dist:{goal_dist[0]}")
-    #reward = torch.where(goal_penalty == 1, reward + 10, reward) 
-    #goal_penalty = torch.where(goal_penalty== 1, 2,0)
-    #reward = torch.where(goal_penalty == 1, reward - reach_goal_bonus, reward) 
-    #print(f"reward2: {reward[0]}")
     
     resets = reset_buf
     if max_consecutive_successes > 0:
