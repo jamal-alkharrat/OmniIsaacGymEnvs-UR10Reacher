@@ -102,7 +102,22 @@ Created a new function, get_platform().
 
 [,ruby]
 ----
-include::/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/tasks/shared/reacher.py[lines=200..214]
+# Add platform
+def get_platform(self):
+    self.platform_position = self.platform_position
+    self.platform_scale = torch.tensor([(0.3, 0.4, 0.03)], device=self.device)
+    self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/platform_instanceable_help.usd"
+    add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
+    platform = XFormPrim(
+    prim_path=self.default_zero_env_path + "/platform/platform/Cube",
+    name="platform",
+    translation=self.platform_position,
+    scale=self.platform_scale,
+    visible=True,
+    )
+    print('Path to help:' + self.default_zero_env_path)
+    self._sim_config.apply_articulation_settings("platform", get_prim_at_path(platform.prim_path), self._sim_config.parse_actor_config("platform_object"))
+    return platform
 ----
 
 Called the function in the setup_scene() function.
@@ -111,6 +126,119 @@ Called the function in the setup_scene() function.
 ----
 include::/home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/omniisaacgymenvs/tasks/shared/reacher.py[lines=113..113]
 ----
+
+We can also add the PrimView for the platform which will activate the gravity on the platform itself. We conmmented this out so that the platform doesn't fall to the ground. Although adding the PrimView is not stricly necessary, it is a good idea to do so, so we can manipulate the platform in the pre_physics_step() and post_rest() functions. This is done for example so the platform position follows the randomized target position. This allows us to train a modal with randomized target positions after success or failure.
+
+
+[,ruby]
+----
+# Define platforms view
+self._platforms = RigidPrimView(
+    prim_paths_expr="/World/envs/env_.*/platform/platform/Cube",
+    name="platform_view",
+    reset_xform_properties=False,          
+)
+scene.add(self._platforms) # Add platforms to scene
+----
+
+Now we can manipulate the platforms in all envs using the self._platforms variable. For example, we can set the platform position to the target position in the reset_target_pose() function.
+
+[,ruby]
+----
+# change platform position to be under the goal
+# After i added the platform, i couldn't manipulate the platform positions for all envs.
+# First i had to add self.platform_pos. To do that i had to add self._platforms.get_world_poses()
+# self._platforms is a RigidPrimView object. I had to add after calling get_platform() in the set_up_scene() function.
+# But i couldn't manipulate the platform position for all envs. So i had to add self.platform_pos in post_reset() function.
+# Now i can manipulate the platform position for all envs to be under the goal. Alternatively i can randomize the platform position
+# and then add the goal position to be above the platform position.
+self.platform_pos[env_ids] = self.goal_pos[env_ids] - torch.tensor([0.0, 0.0, 0.15], device=self.device)
+
+
+platform_pos, platform_rot = self.platform_pos.clone(), self.platform_rot.clone()
+platform_pos[env_ids] = self.platform_pos[env_ids] + self._env_pos[env_ids] # add world env pos
+
+# set platform position in the scene in self._platforms
+self._platforms.set_world_poses(platform_pos[env_ids], platform_rot[env_ids], indices)
+        
+----
+
+We can also manipulate the platform position in the pre_physics_step() function. For some reason after manipulating the platform position in the pre_physics_step() function, the platform position is not set correctly under the target. Also the platform kept falling the ground. First i thought the reason was the small negative z hight position i was adding to the platform position. But after removing that line the platform kept falling to the ground. But it was happening just because of the gravity that was activated on the platform. So i removed the PrimView. Now the platform isn't affected by gravity.
+
+
+[,ruby]
+----
+# To fix the problem with the platform that it is falling down, i had to add self.platform_pos and self.platform_rot here, but this didn't work at first
+# because of subtracting the world evn pos, after removing that line the position was correct but the platform kept slowly sinking to the ground,
+# the reason is the negative torch.tensor in the z axis that is not called once but instead at every step so that the negative movment is added up.
+# new_platform_pos = self.goal_pos - torch.tensor([0.0, 0.0, 0.15], device=self.device)
+# self.platform_pos = new_platform_pos
+# print('platform_pos: ', self.platform_pos)
+# self.platform_pos -= self._env_pos # subtract world env pos
+# indices = env_ids.to(dtype=torch.int32)
+# platform_pos, platform_rot = self.platform_pos.clone(), self.platform_rot.clone()
+# platform_pos[env_ids] = self.platform_pos[env_ids] + self._env_pos[env_ids] # add world env pos
+
+# # set platform position in the scene in self._platforms
+# self._platforms.set_world_poses(platform_pos[env_ids], platform_rot[env_ids], indices)
+
+# platform_pos = self.platform_pos + self._env_pos
+# platform_rot_static = torch.full((len(env_ids), 4), 1.0, device=self.device)
+# platform_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
+# self._platforms.set_world_poses(platform_pos, platform_rot)
+----
+
+And to get the platform position for each env we add the following lines in the post_reset() function.
+
+[,ruby]
+----
+# Add self platform pos and rot for all envs as tensors
+self.platform_pos, self.platform_rot = self._platforms.get_world_poses()
+self.platform_pos -= self._env_pos # subtract world env pos so that platform is always at 0,0,0
+----
+
+But we decieded to use the variant with the static goal and platform position. We added a new variable for platform position in the ReacherTask constructor.
+
+[,ruby]
+----
+###=========================Add platform=========================###
+self.platform_position = torch.tensor([1.0, 0.0, 0.5], device=self.device)
+----
+
+And we made the target position static as well and commented the randomization in the reset_target_pose() function out. But we can't delete the reset_target_pose(). I think it has something to do with the line 'self.reset_goal_buf[env_ids] = 0' which is important for the reward calculation.
+
+[,ruby]
+----
+def reset_target_pose(self, env_ids):
+    # reset goal, this function is called when the goal needs to be reset.
+    # indices = env_ids.to(dtype=torch.int32)
+    # rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), 4), device=self.device)
+
+    # new_pos = self.get_reset_target_new_pos(len(env_ids))
+    # new_rot = randomize_rotation(rand_floats[:, 0], rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
+    
+    # self.goal_pos[env_ids] = new_pos
+    # self.goal_rot[env_ids] = new_rot
+    # #print('goal_rot: ', self.goal_rot)
+    # goal_pos, goal_rot = self.goal_pos.clone(), self.goal_rot.clone()
+    # goal_pos[env_ids] = self.goal_pos[env_ids] + self._env_pos[env_ids] # add world env pos
+
+    # self._goals.set_world_poses(goal_pos[env_ids], goal_rot[env_ids], indices)
+    self.reset_goal_buf[env_ids] = 0
+----
+
+We also had to remove the following lines from the pre_physics_step() function.
+
+[,ruby]
+----
+        # if only goals need reset, then call set API
+        if len(goal_env_ids) > 0 and len(env_ids) == 0:
+            self.reset_target_pose(goal_env_ids)
+        elif len(goal_env_ids) > 0:
+            self.reset_target_pose(goal_env_ids)
+----
+
+Finally we changed the target position in the get_goal() function manually.
 
 === Additional Features
 
@@ -163,6 +291,28 @@ self._cs = _isaac_sensor.acquire_contact_sensor_interface()
 
 To divide the AI tasks into different areas, states were introduced in the reacher.py file. The goal is to separate the tasks of the AI or multiple AIs into different areas.
 
-==== Feature 3: Platform for Random Targets
+==== Feature 3: Rondomized target and object postions
+
+we can simply change the following lines in the reset_target_pose() function to randomize the target position and the object position.
+
+[,ruby]
+----
+# Random Postions
+#object_rand_floats = torch_rand_float(1.0, 1.0, (len(env_ids), 4), device=self.device)
+goal_rand_floats = torch_rand_float(-1.0, -1.0, (len(env_ids), 4), device=self.device)
+# new_pos = self.get_reset_target_new_pos(len(env_ids))
+# new_pos_object = self.get_reset_target_new_pos(len(env_ids))
+new_rot = randomize_rotation(goal_rand_floats[:, 0], goal_rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
+#new_rot_object = randomize_rotation(object_rand_floats[:, 0], object_rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
+
+#Static Positions, for testing
+value = torch.tensor([0.8, 0.0, 0.05], device=self.device)
+#value_object = torch.tensor([-0.8, 0.0, 0.05], device=self.device)
+new_pos = value.repeat(len(env_ids), 1)
+#new_pos_object = value_object.repeat(len(env_ids), 1)
+----
+
+I made it so, we can easily switch between the static and the randomized positions. 
+
 
 == Conclusion

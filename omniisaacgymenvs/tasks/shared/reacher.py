@@ -111,7 +111,6 @@ class ReacherTask(RLTask):
         self.get_object()
         self.get_goal()
         self.get_platform() 
-        #self._platform =scene.add(self.get_platform())
 
         super().set_up_scene(scene)
 
@@ -307,9 +306,7 @@ class ReacherTask(RLTask):
         
         # platform_pos = self.platform_pos + self._env_pos
         # platform_rot_static = torch.full((len(env_ids), 4), 1.0, device=self.device)
-
         # platform_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
-        # print('platform_rot: ', platform_rot)
         # self._platforms.set_world_poses(platform_pos, platform_rot)
 
         # if only goals need reset, then call set API
@@ -372,13 +369,13 @@ class ReacherTask(RLTask):
         # self._goals.set_world_poses(goal_pos[env_ids], goal_rot[env_ids], indices)
         self.reset_goal_buf[env_ids] = 0
         
-        # change platform position to be under the goal
-        # After i added the platform, i couldn't manipulate the platform positions for all envs.
-        # First i had to add self.platform_pos. To do that i had to add self._platforms.get_world_poses()
-        # self._platforms is a RigidPrimView object. I had to add after calling get_platform() in the set_up_scene() function.
-        # But i couldn't manipulate the platform position for all envs. So i had to add self.platform_pos in post_reset() function.
-        # Now i can manipulate the platform position for all envs to be under the goal. Alternatively i can randomize the platform position
-        # and then add the goal position to be above the platform position.
+        # # change platform position to be under the goal
+        # # After i added the platform, i couldn't manipulate the platform positions for all envs.
+        # # First i had to add self.platform_pos. To do that i had to add self._platforms.get_world_poses()
+        # # self._platforms is a RigidPrimView object. I had to add after calling get_platform() in the set_up_scene() function.
+        # # But i couldn't manipulate the platform position for all envs. So i had to add self.platform_pos in post_reset() function.
+        # # Now i can manipulate the platform position for all envs to be under the goal. Alternatively i can randomize the platform position
+        # # and then add the goal position to be above the platform position.
         # self.platform_pos[env_ids] = self.goal_pos[env_ids] - torch.tensor([0.0, 0.0, 0.15], device=self.device)
         
         
