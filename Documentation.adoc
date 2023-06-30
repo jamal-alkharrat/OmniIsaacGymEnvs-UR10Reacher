@@ -314,5 +314,20 @@ new_pos = value.repeat(len(env_ids), 1)
 
 I made it so, we can easily switch between the static and the randomized positions. 
 
+==== Feature 4: Attach the object to the end of the end_effector
 
-== Conclusion
+To attach the object to the end of the end_effector, we added the following lines in the pre_physics_step() function. The code snippet does indeed allow for movement in all three dimensions. It starts with a unit vector along the x-axis, but then it rotates this vector by the end_effector's rotation. The result is a new vector that points in the direction the end_effector is facing, which could be any direction in 3D space.
+
+[,ruby]
+----
+self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot,self.get_object_displacement_tensor()) #quat_rotate_inverse(self.end_effectors_init_rot, self.get_object_displacement_tensor()))
+----
+
+== Results
+
+===  1: Converted UR10 Robot Arm into a Robot Arm with a Short Suction Module
+===  2: Stabilized the Target, Removed Randomness in the Target's Position
+===  3: Attached the object to the end of the end_effector
+===  4: Added a Target Platform under the Target
+===  5: Trained the model to reach the target on the platform
+ The trained model 'runs/UR10Reacher/nn/UR10Reacher_ep_197_rew_110486.16.pth'
