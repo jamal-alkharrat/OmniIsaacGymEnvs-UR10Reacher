@@ -167,7 +167,7 @@ class ReacherTask(RLTask):
         pass
 
     def get_object(self):
-        self.object_start_translation = torch.tensor([1.0, 1.0, 1.0], device=self.device)
+        self.object_start_translation = torch.tensor([0.7, 0.7, 1.0], device=self.device)
         self.object_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/object")
@@ -306,16 +306,15 @@ class ReacherTask(RLTask):
 
         #print(object_dist)
         #Apply the gripper action
-        
         gripper_actions = self.actions[:, 5].to(dtype=torch.int64)
         for i, action in enumerate(gripper_actions):
             if object_dist[i] < 0.1:
                 if action.item() == 0: # Open the gripper
-                    #print('open gripper')
-                    self._ur10._gripper.open()
+                    print('open gripper')
+                    #self._arms._end_effectors.gripper.open()
                 else: # Close the gripper
-                    #print('close gripper')
-                    self._ur10._gripper.close()
+                    print('close gripper')
+                    #self._arms._end_effectors.gripper.close()
 
         if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
             # Only retrieve the 0-th joint position even when multiple envs are used
@@ -422,17 +421,17 @@ def compute_arm_reward(
     #goal_dist = torch.sqrt(torch.square(target_pos - object_pos).sum(-1))
 
     #### Try UR10_end_effector to Object ####
-    goal_dist = torch.sqrt(torch.square(end_effector_pos - object_pos).sum(-1))
+    goal_dist = torch.sqrt(torch.square(object_pos - end_effector_pos).sum(-1))
 
     #print('goal_dist: ', goal_dist[1])
     # Orientation alignment for the cube in hand and goal cube
     quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
     rot_dist = 2.0 * torch.asin(torch.clamp(torch.norm(quat_diff[:, 1:4], p=2, dim=-1), max=1.0)) # changed quat convention
 
-    #dist_rew = 1.0 / (5*goal_dist)
-    dist_rew= goal_dist * dist_reward_scale
+    dist_rew = 1.0 / (5*goal_dist)
+    #dist_rew= goal_dist * dist_reward_scale
     rot_rew = 1.0/(torch.abs(rot_dist) + rot_eps) * rot_reward_scale
-    print('dist_rew: ', dist_rew[1])
+    #print('dist_rew: ', dist_rew[1])
     action_penalty = torch.sum(actions ** 2, dim=-1)
 
     goal_height = target_pos[:, 2]
@@ -447,7 +446,7 @@ def compute_arm_reward(
     #print('platform_penalty: ', platform_penalty[0])
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
     #print('height_penalty: ', height_penalty)
-    reward = dist_rew + action_penalty * action_penalty_scale - height_penalty
+    reward = dist_rew + action_penalty * action_penalty_scale #- height_penalty
     #print('reward: ', reward[1])
     # Find out which envs hit the goal and update successes count
     goal_resets = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf), reset_goal_buf)

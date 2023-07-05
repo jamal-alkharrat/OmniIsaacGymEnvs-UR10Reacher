@@ -4,7 +4,7 @@ task:
   env:
     numEnvs: ${resolve_default:512,${...num_envs}}
     envSpacing: 3
-    episodeLength: 600
+    episodeLength: 300
     clipObservations: 5.0
     clipActions: 1.0
     useRelativeControl: false
@@ -26,11 +26,11 @@ task:
     distRewardScale: -2.0
     rotRewardScale: 1.0
     rotEps: 0.1
-    actionPenaltyScale: -2.0e-05
+    actionPenaltyScale: -0.0002
     reachGoalBonus: 250
     velObsScale: 0.2
     observationType: full
-    successTolerance: 0.05
+    successTolerance: 0.1
     printNumSuccesses: false
     maxConsecutiveSuccesses: 0
   sim:
