@@ -101,7 +101,7 @@ class ReacherTask(RLTask):
         self.total_resets = 0
         
         ###=========================Add platform=========================###
-        self.platform_position = torch.tensor([1.0, 0.0, 0.5], device=self.device)
+        self.platform_position_init = torch.tensor([1.0, 0.0, 0.5], device=self.device)
         return
 
     def set_up_scene(self, scene: Scene) -> None:
@@ -112,8 +112,7 @@ class ReacherTask(RLTask):
         self.get_object()
         self.get_goal()
         self.get_platform() 
-        #self._platform =scene.add(self.get_platform())
-
+        
         super().set_up_scene(scene)
 
         self._arms = self.get_arm_view(scene)
@@ -168,7 +167,7 @@ class ReacherTask(RLTask):
         pass
 
     def get_object(self):
-        self.object_start_translation = torch.tensor([1.0, 1.0, 0.5], device=self.device)
+        self.object_start_translation = torch.tensor([1.0, 1.0, 1.0], device=self.device)
         self.object_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/object")
@@ -199,7 +198,7 @@ class ReacherTask(RLTask):
         
     # Add platform
     def get_platform(self):
-        self.platform_position = self.platform_position
+        self.platform_position = self.platform_position_init
         self.platform_scale = torch.tensor([(0.3, 0.4, 0.03)], device=self.device)
         self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/platform_instanceable_help.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/platform")
@@ -255,7 +254,7 @@ class ReacherTask(RLTask):
             self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
             self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
             self.max_consecutive_successes, self.av_factor,
-            self.platform_position
+            self.platform_position_init
         )
 
         self.extras['consecutive_successes'] = self.consecutive_successes.mean()
@@ -416,7 +415,7 @@ def compute_arm_reward(
     actions, action_penalty_scale: float,
     success_tolerance: float, reach_goal_bonus: float, fall_dist: float,
     fall_penalty: float, max_consecutive_successes: int, av_factor: float,
-    platform_pos
+    platform_height
 ):
 
     #goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
@@ -425,22 +424,22 @@ def compute_arm_reward(
     #### Try UR10_end_effector to Object ####
     goal_dist = torch.sqrt(torch.square(end_effector_pos - object_pos).sum(-1))
 
-    #print('goal_dist: ', goal_dist)
-    #print('goal_dist: ', goal_dist)
+    #print('goal_dist: ', goal_dist[1])
     # Orientation alignment for the cube in hand and goal cube
     quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
     rot_dist = 2.0 * torch.asin(torch.clamp(torch.norm(quat_diff[:, 1:4], p=2, dim=-1), max=1.0)) # changed quat convention
 
-    dist_rew = 1.0 / (5*goal_dist)#goal_dist * dist_reward_scale
+    #dist_rew = 1.0 / (5*goal_dist)
+    dist_rew= goal_dist * dist_reward_scale
     rot_rew = 1.0/(torch.abs(rot_dist) + rot_eps) * rot_reward_scale
-    #print('dist_rew: ', dist_rew)
+    print('dist_rew: ', dist_rew[1])
     action_penalty = torch.sum(actions ** 2, dim=-1)
 
     goal_height = target_pos[:, 2]
     object_height = object_pos[:, 2]
-    #platform_height = platform_pos[:, 2]
-    #print('object_height: ', object_height[0])
-    height_penalty = torch.where(goal_height > object_height,goal_height - object_height  , torch.zeros_like(goal_height))
+    end_effector_height = end_effector_pos[:, 2]
+
+    height_penalty = torch.where(end_effector_height < platform_height[2],torch.abs(end_effector_height - platform_height[2])  , torch.zeros_like(end_effector_height))
     
     # Penalize when the object hits the platform
     #object_platform_dist = torch.sqrt(torch.square(object_pos - platform_pos).sum(-1))
@@ -448,8 +447,8 @@ def compute_arm_reward(
     #print('platform_penalty: ', platform_penalty[0])
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
     #print('height_penalty: ', height_penalty)
-    reward = dist_rew + action_penalty * action_penalty_scale + height_penalty
-    #print('reward: ', reward[0])
+    reward = dist_rew + action_penalty * action_penalty_scale - height_penalty
+    #print('reward: ', reward[1])
     # Find out which envs hit the goal and update successes count
     goal_resets = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf), reset_goal_buf)
     successes = successes + goal_resets
