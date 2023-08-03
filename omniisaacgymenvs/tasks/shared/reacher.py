@@ -102,6 +102,10 @@ class ReacherTask(RLTask):
         
         ###=========================Add platform=========================###
         self.platform_position_init = torch.tensor([1.0, 0.0, 0.5], device=self.device)
+        self.object_position_init = torch.tensor([0.7, 0.7, 1.0], device=self.device)
+        self.object_translation_init = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
+        self.object_reached_buf = torch.zeros(self._num_envs, device=self._device, dtype=torch.long)
+        self.attached = self.reset_buf.clone()
         return
 
     def set_up_scene(self, scene: Scene) -> None:
@@ -167,8 +171,8 @@ class ReacherTask(RLTask):
         pass
 
     def get_object(self):
-        self.object_start_translation = torch.tensor([0.7, 0.7, 1.0], device=self.device)
-        self.object_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
+        self.object_start_translation = self.object_position_init
+        self.object_start_orientation = self.object_translation_init
         self.object_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
         add_reference_to_stage(self.object_usd_path, self.default_zero_env_path + "/object")
         obj = XFormPrim(
@@ -181,11 +185,11 @@ class ReacherTask(RLTask):
         self._sim_config.apply_articulation_settings("object", get_prim_at_path(obj.prim_path), self._sim_config.parse_actor_config("object"))
 
     def get_goal(self):
-        self.goal_displacement_tensor = torch.tensor([0.0, 0.0, 0.1], device=self.device)
-        self.goal_start_translation = torch.tensor([1.0, 0.0, 0.5], device=self.device) + self.goal_displacement_tensor
+        self.goal_displacement_tensor = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+        self.goal_start_translation = torch.tensor([0.7, 0.7, 1.0], device=self.device) + self.goal_displacement_tensor
         self.goal_start_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
 
-        self.goal_usd_path = f"{self._assets_root_path}/Isaac/Props/Goal/block_instanceable.usd"
+        self.goal_usd_path = f"{self._assets_root_path}/Isaac/Props/Blocks/block_instanceable.usd"
         add_reference_to_stage(self.goal_usd_path, self.default_zero_env_path + "/goal")
         goal = XFormPrim(
             prim_path=self.default_zero_env_path + "/goal/object",
@@ -222,6 +226,19 @@ class ReacherTask(RLTask):
         self.prev_targets = torch.zeros((self.num_envs, self.num_arm_dofs), dtype=torch.float, device=self.device)
         self.cur_targets = torch.zeros((self.num_envs, self.num_arm_dofs), dtype=torch.float, device=self.device)
 
+        #Define priority Tensor
+        self.priority = torch.zeros((self.num_envs, 6), dtype=torch.bool, device=self.device)
+        # Set the 1st point as the priority on every reset
+        self.priority[:, 0] = True
+
+        # Target position id
+        self.cur_goal_pos = torch.zeros(self.num_envs, device=self.device)
+
+        # Tensor for number of environment reset
+        self.all_resets = torch.zeros(self.num_envs, device=self.device)
+        self.all_prev_resets = torch.zeros(self.num_envs, device=self.device)
+
+
         dof_limits = self._dof_limits
         self.arm_dof_lower_limits, self.arm_dof_upper_limits = torch.t(dof_limits[0].to(self.device))
 
@@ -246,15 +263,16 @@ class ReacherTask(RLTask):
 
     def calculate_metrics(self):
         end_effector_pos, end_effector_rot = self._arms._end_effectors.get_world_poses()
+        end_effector_pos -= self._env_pos
         self.fall_dist = 0
         self.fall_penalty = 0
-        self.rew_buf[:], self.reset_buf[:], self.reset_goal_buf[:], self.progress_buf[:], self.successes[:], self.consecutive_successes[:] = compute_arm_reward(
+        self.rew_buf[:], self.reset_buf[:], self.reset_goal_buf[:], self.progress_buf[:], self.successes[:], self.consecutive_successes[:], self.attached[:] = compute_arm_reward(
             self.rew_buf, self.reset_buf, self.reset_goal_buf, self.progress_buf, self.successes, self.consecutive_successes,
             self.max_episode_length, self.object_pos, self.object_rot, self.goal_pos, self.goal_rot, end_effector_pos, end_effector_rot,
             self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
             self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
             self.max_consecutive_successes, self.av_factor,
-            self.platform_position_init
+            self.platform_position_init, self.object_reached_buf, self.attached
         )
 
         self.extras['consecutive_successes'] = self.consecutive_successes.mean()
@@ -267,24 +285,31 @@ class ReacherTask(RLTask):
             print("Direct average consecutive successes = {:.1f}".format(direct_average_successes/(self.total_resets + self.num_envs)))
             if self.total_resets > 0:
                 print("Post-Reset average consecutive successes = {:.1f}".format(self.total_successes/self.total_resets))
+        
 
     def pre_physics_step(self, actions):
+        reset = False
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
-        #self._ur10._gripper.update()
+       
+        self.object_pos, self.object_rot = self._objects.get_world_poses()
         end_effectors_pos, end_effectors_rot = self._arms._end_effectors.get_world_poses()
-        object_dist = torch.norm(end_effectors_pos - self.object_pos, p=2, dim=-1)
-        # if only goals need reset, then call set API
-        #if len(goal_env_ids) > 0 and len(env_ids) == 0:
-        #    self.reset_target_pose(goal_env_ids)
-        #elif len(goal_env_ids) > 0:
-        #    self.reset_target_pose(goal_env_ids)
+        
+        goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
+        attached_env = self.attached.nonzero(as_tuple=False).squeeze(-1)
+        #self._ur10._gripper.update()
+        #if only goals need reset, then call set API
+        if len(goal_env_ids) > 0 and len(env_ids) == 0:
+           self.reset_target_pose(goal_env_ids)
+        elif len(goal_env_ids) > 0:
+           self.reset_target_pose(goal_env_ids)
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
+            #reset = True
+
 
         self.actions = actions.clone().to(self.device)
         # Reacher tasks don't require gripper actions, disable it.
-        #self.actions[:, 5] = 0.0
+        self.actions[:, 5] = 0.0
 
         if self.use_relative_control:
             targets = self.prev_targets[:, self.actuated_dof_indices] + self.arm_dof_speed_scale * self.dt * self.actions
@@ -303,18 +328,40 @@ class ReacherTask(RLTask):
         self._arms.set_joint_position_targets(
             self.cur_targets[:, self.actuated_dof_indices], indices=None, joint_indices=self.actuated_dof_indices
         )
+        indices = attached_env.to(dtype=torch.int32)
+        if len(attached_env) > 0: #and reset==False:
+            self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot,self.get_object_displacement_tensor())
+            self.object_pos -= self._env_pos # subtract world env pos
+            object_pos = self.object_pos + self._env_pos
+            object_rot = self.object_rot
+            self._objects.set_world_poses(object_pos[attached_env], object_rot[attached_env], indices)
 
+            # object_pos, object_rot = self.object_pos.clone(), self.object_rot.clone()
+            # self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot,self.get_object_displacement_tensor())
+            # object_rot = self.object_rot
+            # self._objects.set_world_poses(object_pos[attached_env], object_rot[attached_env], indices)
+
+        #self._objects.set_world_poses(self.object_position_init, self.object_translation_init)
         #print(object_dist)
         #Apply the gripper action
-        gripper_actions = self.actions[:, 5].to(dtype=torch.int64)
-        for i, action in enumerate(gripper_actions):
-            if object_dist[i] < 0.1:
-                if action.item() == 0: # Open the gripper
-                    print('open gripper')
-                    #self._arms._end_effectors.gripper.open()
-                else: # Close the gripper
-                    print('close gripper')
-                    #self._arms._end_effectors.gripper.close()
+        # gripper_actions = self.actions[:, 5].to(dtype=torch.int64)
+        # for i, action in enumerate(gripper_actions):
+        #     if object_dist[i] < 0.2:
+        #         #print('close gripper')
+        #         # if action.item() == 0: # Open the gripper
+        #         #     print('open gripper')
+        #         #     #self._arms._end_effectors.gripper.open()
+        #         # else: # Close the gripper
+        #         #     print('close gripper')
+        #         #     #self._arms._end_effectors.gripper.close()                       
+        #         self.object_pos = end_effectors_pos + quat_rotate(end_effectors_rot,self.get_object_displacement_tensor()) #quat_rotate_inverse(self.end_effectors_init_rot, self.get_object_displacement_tensor()))
+
+        #         self.object_pos -= self._env_pos # subtract world env pos
+                
+        #         object_pos = self.object_pos + self._env_pos
+        #         object_rot = self.object_rot
+        #         self._objects.set_world_poses(object_pos, object_rot)
+        #         self.attached = 1
 
         if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
             # Only retrieve the 0-th joint position even when multiple envs are used
@@ -331,19 +378,23 @@ class ReacherTask(RLTask):
 
     def reset_target_pose(self, env_ids):
         # reset goal, this function is called when the goal needs to be reset.
-        # indices = env_ids.to(dtype=torch.int32)
-        # rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), 4), device=self.device)
+        indices = env_ids.to(dtype=torch.int32)
+        #rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), 4), device=self.device)
 
-        # new_pos = self.get_reset_target_new_pos(len(env_ids))
-        # new_rot = randomize_rotation(rand_floats[:, 0], rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
+        #new_pos = self.get_reset_target_new_pos(len(env_ids))
+        end_effectors_pos, end_effectors_rot = self._arms._end_effectors.get_world_poses()
+        goal_dist = torch.norm(end_effectors_pos - self.goal_pos, p=2, dim=-1)
+        #new_pos, curr_pos, target_points, 
+        #new_pos_2 = self.get_reset_target_new_pos_2(len(env_ids), env_ids, self.goal_pos)
+        #new_rot = randomize_rotation(rand_floats[:, 0], rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
+        new_pos_2 = torch.tensor([1.0, 0.0, 0.6], device=self.device)
         
-        # self.goal_pos[env_ids] = new_pos
-        # self.goal_rot[env_ids] = new_rot
-        # #print('goal_rot: ', self.goal_rot)
-        # goal_pos, goal_rot = self.goal_pos.clone(), self.goal_rot.clone()
-        # goal_pos[env_ids] = self.goal_pos[env_ids] + self._env_pos[env_ids] # add world env pos
-
-        # self._goals.set_world_poses(goal_pos[env_ids], goal_rot[env_ids], indices)
+        self.goal_pos[env_ids] = new_pos_2
+        goal_pos, goal_rot = self.goal_pos.clone(), self.goal_rot.clone()
+        goal_pos[env_ids] = self.goal_pos[env_ids] + self._env_pos[env_ids] # add world env pos
+        self._goals.set_world_poses(goal_pos[env_ids], goal_rot[env_ids], indices)
+        
+       
         self.reset_goal_buf[env_ids] = 0
         
         # change platform position to be under the goal
@@ -353,7 +404,61 @@ class ReacherTask(RLTask):
         # But i couldn't manipulate the platform position for all envs. So i had to add self.platform_pos in post_reset() function.
         # Now i can manipulate the platform position for all envs to be under the goal. Alternatively i can randomize the platform position
         # and then add the goal position to be above the platform position.
-        # self.platform_pos[env_ids] = self.goal_pos[env_ids] - torch.tensor([0.0, 0.0, 0.15], device=self.device)
+        #self.platform_pos[env_ids] = self.goal_pos[env_ids] - torch.tensor([0.0, 0.0, 0.15], device=self.device)
+        
+        
+        # platform_pos, platform_rot = self.platform_pos.clone(), self.platform_rot.clone()
+        # platform_pos[env_ids] = self.platform_pos[env_ids] + self._env_pos[env_ids] # add world env pos
+        
+        # # set platform position in the scene in self._platforms
+        # self._platforms.set_world_poses(platform_pos[env_ids], platform_rot[env_ids], indices)
+        
+    def reset_target_pose_init(self, env_ids):
+        # reset goal, this function is called when the goal needs to be reset.
+        indices = env_ids.to(dtype=torch.int32)
+        #rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), 4), device=self.device)
+
+        #new_pos = self.get_reset_target_new_pos(len(env_ids))
+        end_effectors_pos, end_effectors_rot = self._arms._end_effectors.get_world_poses()
+
+        #new_pos, curr_pos, target_points, 
+        #new_pos_2 = self.get_reset_target_new_pos_2(len(env_ids), env_ids, self.goal_pos)
+        #new_rot = randomize_rotation(rand_floats[:, 0], rand_floats[:, 1], self.x_unit_tensor[env_ids], self.y_unit_tensor[env_ids])
+        new_pos_2 = torch.tensor([0.7, 0.7, 1.0], device=self.device)
+        
+        self.goal_pos[env_ids] = new_pos_2
+        #print("Goal_Pos", self.goal_pos)
+        #self.goal_rot[env_ids] = new_rot
+
+        # Update priority tensor
+        #self.priority = new_priority_tensor
+
+        # Assign the points to a variable
+        #self.target_points = target_points
+        
+        #self.cur_goal_pos[env_ids] = curr_pos
+        #print('goal_rot: ', self.goal_rot)
+        goal_pos, goal_rot = self.goal_pos.clone(), self.goal_rot.clone()
+        goal_pos[env_ids] = self.goal_pos[env_ids] + self._env_pos[env_ids] # add world env pos
+
+        self._goals.set_world_poses(goal_pos[env_ids], goal_rot[env_ids], indices)
+
+        
+        object_pos, object_rot = self.object_pos.clone(), self.object_rot.clone()
+        object_pos[env_ids] = self.goal_pos[env_ids] + self._env_pos[env_ids]
+        self._objects.set_world_poses(object_pos[env_ids], object_rot[env_ids], indices)
+
+        self.reset_goal_buf[env_ids] = 0
+        
+        
+        # change platform position to be under the goal
+        # After i added the platform, i couldn't manipulate the platform positions for all envs.
+        # First i had to add self.platform_pos. To do that i had to add self._platforms.get_world_poses()
+        # self._platforms is a RigidPrimView object. I had to add after calling get_platform() in the set_up_scene() function.
+        # But i couldn't manipulate the platform position for all envs. So i had to add self.platform_pos in post_reset() function.
+        # Now i can manipulate the platform position for all envs to be under the goal. Alternatively i can randomize the platform position
+        # and then add the goal position to be above the platform position.
+        #self.platform_pos[env_ids] = self.goal_pos[env_ids] - torch.tensor([0.0, 0.0, 0.15], device=self.device)
         
         
         # platform_pos, platform_rot = self.platform_pos.clone(), self.platform_rot.clone()
@@ -365,10 +470,11 @@ class ReacherTask(RLTask):
         
 
     def reset_idx(self, env_ids):
+        self.attached[env_ids] = 0
         indices = env_ids.to(dtype=torch.int32)
         rand_floats = torch_rand_float(-1.0, 1.0, (len(env_ids), self.num_arm_dofs * 2 + 5), device=self.device)
-
-        self.reset_target_pose(env_ids)
+        
+        self.reset_target_pose_init(env_ids)
 
         # reset arm
         delta_max = self.arm_dof_upper_limits - self.arm_dof_default_pos
@@ -392,9 +498,12 @@ class ReacherTask(RLTask):
         self._arms.set_joint_positions(dof_pos[env_ids], indices)
         self._arms.set_joint_velocities(dof_vel[env_ids], indices)
 
+        
+
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
         self.successes[env_ids] = 0
+        
 
 
 #####################################################################
@@ -414,26 +523,37 @@ def compute_arm_reward(
     actions, action_penalty_scale: float,
     success_tolerance: float, reach_goal_bonus: float, fall_dist: float,
     fall_penalty: float, max_consecutive_successes: int, av_factor: float,
-    platform_height
+    platform_height, object_reached_buf, attached
 ):
+    
+    #goal_dist = torch.norm(target_pos - end_effector_pos, p=2, dim=-1)
+    
+    ### Compute the distances ###
+    object_dist = torch.sqrt(torch.square(target_pos - object_pos).sum(-1))
+    endeffector_dist = torch.sqrt(torch.square(object_pos - end_effector_pos).sum(-1))
 
-    #goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
-    #goal_dist = torch.sqrt(torch.square(target_pos - object_pos).sum(-1))
-
-    #### Try UR10_end_effector to Object ####
-    goal_dist = torch.sqrt(torch.square(object_pos - end_effector_pos).sum(-1))
-
-    #print('goal_dist: ', goal_dist[1])
+    attached= torch.where(torch.abs(endeffector_dist) <= 0.2, torch.ones_like(attached), attached)
+    goal_dist = torch.where(attached == 1, object_dist, endeffector_dist)
+    #print(goal_dist)
+    #object_attached = torch.where(object_dist  < 0.1, torch.ones_like(object_reached_buf), object_reached_buf)
+    #print(object_pos[0])
+    #object_goal_dist= torch.sqrt(torch.square(target_pos - end_effector_pos).sum(-1))
+    #goal_dist = torch.where(object_attached == 1, object_goal_dist, object_dist)
+    #goal_resets = torch.zeros_like(reset_goal_buf)
+    #print('unterschiedlichen distancen:', object_dist[0], object_goal_dist[0], goal_dist[0])
+    #print('goal_dist: ', goal_dist)
     # Orientation alignment for the cube in hand and goal cube
     quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
     rot_dist = 2.0 * torch.asin(torch.clamp(torch.norm(quat_diff[:, 1:4], p=2, dim=-1), max=1.0)) # changed quat convention
 
-    dist_rew = 1.0 / (5*goal_dist)
+    dist_rew = 0.01 / (goal_dist**3)
+    #dist_rew = 1/(2*goal_dist)
     #dist_rew= goal_dist * dist_reward_scale
     rot_rew = 1.0/(torch.abs(rot_dist) + rot_eps) * rot_reward_scale
-    #print('dist_rew: ', dist_rew[1])
+   
+    #print('dist_rew: ', dist_rew[2])
     action_penalty = torch.sum(actions ** 2, dim=-1)
-
+    #print("action-penalty: ", action_penalty[2]*action_penalty_scale)
     goal_height = target_pos[:, 2]
     object_height = object_pos[:, 2]
     end_effector_height = end_effector_pos[:, 2]
@@ -446,15 +566,20 @@ def compute_arm_reward(
     #print('platform_penalty: ', platform_penalty[0])
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
     #print('height_penalty: ', height_penalty)
-    reward = dist_rew + action_penalty * action_penalty_scale #- height_penalty
-    #print('reward: ', reward[1])
+    reward = dist_rew + action_penalty * action_penalty_scale - height_penalty 
+    
+    #reward = torch.where(object_attached == 1, reward+reach_goal_bonus-torch.abs(object_dist)**2, reward)
+    #print('reward: ', reward[2])
     # Find out which envs hit the goal and update successes count
-    goal_resets = torch.where(torch.abs(goal_dist) <= success_tolerance, torch.ones_like(reset_goal_buf), reset_goal_buf)
+    #print("goal_dist",goal_dist)
+    distance = torch.where(attached == 1, success_tolerance, 0.3), 
+    measure= torch.where(attached == 1, object_dist, endeffector_dist)
+    goal_resets = torch.where(torch.abs(endeffector_dist) <= 0.3 , torch.ones_like(reset_goal_buf), reset_goal_buf)
     successes = successes + goal_resets
-
+    
     # Success bonus: orientation is within `success_tolerance` of goal orientation
     reward = torch.where(goal_resets == 1, reward + reach_goal_bonus, reward)
-    #print('reward after: ', reward[0])
+    #print('reward after: ', reward[1])
     resets = reset_buf
     if max_consecutive_successes > 0:
         # Reset progress buffer on goal envs if max_consecutive_successes > 0
@@ -467,4 +592,4 @@ def compute_arm_reward(
 
     cons_successes = torch.where(num_resets > 0, av_factor*finished_cons_successes/num_resets + (1.0 - av_factor)*consecutive_successes, consecutive_successes)
 
-    return reward, resets, goal_resets, progress_buf, successes, cons_successes
+    return reward, resets, goal_resets, progress_buf, successes, cons_successes, attached

@@ -2,7 +2,7 @@ task:
   name: UR10Reacher
   physics_engine: ${..physics_engine}
   env:
-    numEnvs: ${resolve_default:512,${...num_envs}}
+    numEnvs: ${resolve_default:250,${...num_envs}}
     envSpacing: 3
     episodeLength: 300
     clipObservations: 5.0
@@ -38,7 +38,7 @@ task:
     gravity:
     - 0.0
     - 0.0
-    - 0.0
+    - -9.81
     add_ground_plane: true
     add_distant_light: true
     use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
@@ -168,7 +168,7 @@ train:
       kl_threshold: 0.008
       score_to_win: 100000
       max_epochs: ${resolve_default:5000,${....max_iterations}}
-      save_best_after: 10
+      save_best_after: 50
       save_frequency: 200
       print_stats: true
       grad_norm: 1.0
@@ -188,7 +188,7 @@ train:
         print_stats: true
 task_name: ${task.name}
 experiment: ''
-num_envs: 3
+num_envs: 250
 seed: 42
 torch_deterministic: false
 max_iterations: ''
@@ -199,9 +199,9 @@ device_id: 0
 rl_device: cuda:0
 num_threads: 4
 solver_type: 1
-test: true
-checkpoint: /home/willi/Dokumente/Omniverse-Pick-and-Place/OmniIsaacGymEnvs-UR10Reacher/runs/UR10Reacher/nn/UR10Reacher.pth
-headless: false
+test: false
+checkpoint: ''
+headless: true
 wandb_activate: false
 wandb_group: ''
 wandb_name: ${train.params.config.name}

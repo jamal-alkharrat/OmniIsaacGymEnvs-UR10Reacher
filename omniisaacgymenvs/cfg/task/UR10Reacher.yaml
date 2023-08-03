@@ -5,7 +5,7 @@ physics_engine: ${..physics_engine}
 
 # if given, will override the device setting in gym.
 env:
-  numEnvs: ${resolve_default:512,${...num_envs}}
+  numEnvs: ${resolve_default:250,${...num_envs}} #${resolve_default:512,${...num_envs}}
   envSpacing: 3
   episodeLength: 300 #600
 
@@ -46,7 +46,7 @@ env:
 
 sim:
   dt: 0.0083 # 1/120 s
-  gravity: [0.0, 0.0, 0.0] #[0.0, 0.0, -9.81]
+  gravity: [0.0, 0.0, -9.81] #[0.0, 0.0, -9.81]
   add_ground_plane: True
   add_distant_light: True
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}

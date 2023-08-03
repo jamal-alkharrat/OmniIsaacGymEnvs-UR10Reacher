@@ -161,3 +161,9 @@ Um die Aufgaben der KI in unterschiedliche Bereiche zu unterteilen, wurden die S
 
 ==== Feature 3: Platform für zufällige Ziele
 == Fazit
+
+== Aktuelle Probleme
+
+Ziel ist es nachdem der Endeffektor das Objekt erreicht hat, dies (noch automatisch) zu attachen und dann zu der Goal-Positon zu befördern. Dafür habe ich die Reward Funktion so angepasst, dass das bei einem bestimmen Goal-Abstand von unter 0,5 (0,3) Einheiten das Objekt an den Endeffektor attached wird und die neue Distance zwischen dem Goal und dem Obejkt/Endeffektor berechnet wird. Diese neue Distance wird dann als Reward zurückgegeben.
+
+Problem: Die Ki möchte nicht zu nah an das Objekt heran, da dadruch die Distance beim Attachen wieder verändert wird und in diesem Fall verschlächtert. Das führt dazu, dass der Endeffektor in dem perfekten Abstand zum Objekt bleibt, um maximalen Reward zu bekommen.

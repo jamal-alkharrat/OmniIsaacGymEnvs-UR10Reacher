@@ -150,9 +150,63 @@ class UR10ReacherTask(ReacherTask):
         }
         return observations
 
-    def get_reset_target_new_pos(self, n_reset_envs):
+    def get_reset_target_new_pos(self, n_reset_envs, priority_tensor, reset_envs):
         # Randomly generate goal positions, although the resulting goal may still not be reachable.
         new_pos = torch_rand_float(-1, 1, (n_reset_envs, 3), device=self.device)
+
+        self.first_target=torch.tensor([0.7, 0.7, 1.0], device=self.device)
+        self.second_target=torch.tensor([1.0, 0.0, 0.6], device=self.device)
+
+        new_pos_2 = torch.zeros((n_reset_envs, 3), device=self.device)
+        target_positions= [self.first_target, self.second_target]
+        priority_list = []
+
+        # sorting priority tensor with reset tensor
+        for env_id_tensor in reset_envs:
+            env_int_id = env_id_tensor.item()
+            priority_list.append(priority_tensor[env_int_id])
+
+        priority_n_reset = torch.stack((priority_list), dim=0)
+
+        for row_num,row in enumerate(priority_n_reset):
+            for column_num,column in enumerate(row):
+                if column==True:
+                    # new_pos_2[row_num] = target_env_pts[row_num][column_num]
+                    new_pos_2[row_num] = target_positions[column_num]
+
+        #new_priority_tensor = priority_tensor.clone()
+
+        # true_tensor = torch.tensor([True], device = self.device)
+        # false_tensor = torch.tensor([False], device = self.device)
+
+        # for env_idtensor in reset_envs:
+        #     env_int = env_idtensor.item()
+        #     for num, env_bool in enumerate(new_priority_tensor[env_int]):
+        #         #print(env_bool, new_priority_tensor[env_int, num])
+        #         if env_bool == true_tensor and  new_priority_tensor[env_int,num] != new_priority_tensor[env_int, -1]:
+        #             new_priority_tensor[env_int, num] = false_tensor
+        #             new_priority_tensor[env_int, num+1] = true_tensor
+        #             break
+        #         elif env_bool == true_tensor and  new_priority_tensor[env_int,num] == new_priority_tensor[env_int,-1]:
+        #             new_priority_tensor[env_int, num] = false_tensor
+        #             new_priority_tensor[env_int, 0] = true_tensor
+        #             break
+        
+        def find_current_pos(item):
+
+            if item == self.first_target.tolist():
+                current_target = 1
+            elif item == self.second_target.tolist():
+                current_target = 2
+            return current_target
+
+        current_pos = torch.zeros(n_reset_envs, device=self.device)
+
+        for num,x in enumerate(new_pos_2):
+            pos = find_current_pos(x.tolist())
+            current_pos[num] = pos
+
+
         if self._task_cfg['sim2real']['enabled'] and self.test and self.num_envs == 1:
             # Depends on your real robot setup
             new_pos[:, 0] = torch.abs(new_pos[:, 0] * 0.1) + 0.35
@@ -165,7 +219,69 @@ class UR10ReacherTask(ReacherTask):
         if self._task_cfg['safety']['enabled']:
             new_pos[:, 0] = torch.abs(new_pos[:, 0]) / 1.25
             new_pos[:, 1] = torch.abs(new_pos[:, 1]) / 1.25
-        return new_pos
+
+        if self._task_cfg['sim2real']['enabled'] and self.num_envs == 1:
+            # Depends on your real robot setup
+            new_pos_2[:, 0] = torch.abs(new_pos_2[:, 0] * 0.1) + 0.35
+            new_pos_2[:, 1] = torch.abs(new_pos_2[:, 1] * 0.1) + 0.35
+            new_pos_2[:, 2] = torch.abs(new_pos_2[:, 2] * 0.5) + 0.3
+        else:
+            new_pos_2[:, 0] = new_pos_2[:, 0] * 0.4 + 0.5 * torch.sign(new_pos_2[:, 0])
+            new_pos_2[:, 1] = new_pos_2[:, 1] * 0.4 + 0.5 * torch.sign(new_pos_2[:, 1])
+            new_pos_2[:, 2] = torch.abs(new_pos_2[:, 2] * 0.8) + 0.1
+        if self._task_cfg['safety']['enabled']:
+            new_pos_2[:, 0] = torch.abs(new_pos_2[:, 0]) #/ 1.25
+            new_pos_2[:, 1] = torch.abs(new_pos_2[:, 1]) #/ 1.25
+        return new_pos,  current_pos, target_positions, new_pos_2 #, new_priority_tensor
+    
+    def get_reset_target_new_pos_2(self, n_reset_envs, reset_envs, goal_pos):
+          
+        def find_current_pos(item): 
+            comparison_result = torch.all(torch.eq(item, self.first_target))
+            if comparison_result == True:
+                   current_target = 1
+            else:
+                current_target = 0
+            return current_target
+
+        self.first_target = torch.tensor([0.7, 0.7, 1.0], device=self.device)
+        self.second_target = torch.tensor([1.0, 0.0, 0.6], device=self.device)
+        target_positions = [self.first_target, self.second_target]
+
+        new_pos_2 = torch.zeros((n_reset_envs, 3), device=self.device)
+        
+        current_pos = torch.zeros(n_reset_envs, device=self.device)
+
+        # for num,x in enumerate(new_pos_2):
+        #     pos = find_current_pos(x.tolist())
+        #     current_pos[num] = pos
+        
+       
+        pos=find_current_pos(goal_pos)
+        new_pos_2 = target_positions[pos]
+        #for i, target_pos in enumerate(target_positions):
+          # Check if the distance between the target position and the end effector is <= 0.3
+                
+                
+
+        # if self._task_cfg['sim2real']['enabled'] and self.num_envs == 1:
+        #     # Depends on your real robot setup
+        #     new_pos_2[:, 0] = torch.abs(new_pos_2[:, 0] * 0.1) + 0.35
+        #     new_pos_2[:, 1] = torch.abs(new_pos_2[:, 1] * 0.1) + 0.35
+        #     new_pos_2[:, 2] = torch.abs(new_pos_2[:, 2] * 0.5) + 0.3
+        # else:
+        #     # new_pos_2[:, 0] = new_pos_2[:, 0] * 0.4 + 0.5 * torch.sign(new_pos_2[:, 0])
+        #     # new_pos_2[:, 1] = new_pos_2[:, 1] * 0.4 + 0.5 * torch.sign(new_pos_2[:, 1])
+        #     # new_pos_2[:, 2] = torch.abs(new_pos_2[:, 2] * 0.8) + 0.1
+        #     new_pos_2[:, 0] = torch.abs(new_pos_2[:, 0] * 0.1) + 0.35
+        #     new_pos_2[:, 1] = torch.abs(new_pos_2[:, 1] * 0.1) + 0.35
+        #     new_pos_2[:, 2] = torch.abs(new_pos_2[:, 2] * 0.5) + 0.3
+
+        # if self._task_cfg['safety']['enabled']:
+        #     new_pos_2[:, 0] = torch.abs(new_pos_2[:, 0])  # / 1.25
+        #     new_pos_2[:, 1] = torch.abs(new_pos_2[:, 1])  # / 1.25
+
+        return new_pos_2#, current_pos, target_positions, new_pos_2
 
     def compute_full_observations(self, no_vel=False):
         if no_vel:
