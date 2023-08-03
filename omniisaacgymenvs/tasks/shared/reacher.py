@@ -765,7 +765,7 @@ def compute_arm_reward(
 
     #dist_rew = goal_dist * dist_reward_scale
     #### experimental Distance Reward ####
-    dist_rew= 1.0 / (2 * goal_dist)
+    dist_rew = 0.01 / (goal_dist**3)
     rot_rew = 1.0/(torch.abs(rot_dist) + rot_eps) * rot_reward_scale
    
 
