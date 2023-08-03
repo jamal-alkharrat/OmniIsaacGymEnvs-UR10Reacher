@@ -521,13 +521,13 @@ class ReacherTask(RLTask):
         self.move_to_target()
 
         if self.current_state == UR10_states.STANDBY: #and self.get_target():# and self.start:
-            print("Ich bin Standby and Start")
+            #print("Ich bin Standby and Start")
 
             self.sm[self.current_state][UR10_events.START]()
         elif self.goalReached:
             self.sm[self.current_state][UR10_events.GOAL_REACHED]()
 
-        print("Ich geh weiter bei reset_idx")
+        #print("Ich geh weiter bei reset_idx")
         ####
 
         
