@@ -748,7 +748,8 @@ def compute_arm_reward(
 ):  
     #print(end_effector_pos)
     #goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
-    goal_dist = torch.norm(end_effector_pos - target_pos, p=2, dim=-1)
+    goal_dist =  torch.sqrt(torch.square(target_pos - end_effector_pos).sum(-1))
+   
     
     # use the L1 norm, this line calculates the distance between the end effector and the object
     # In this line, torch.abs(end_effector_pos - object_pos) computes the absolute difference between the end effector position and the object position along each dimension. torch.sum(..., dim=-1) then adds up these absolute differences to compute the Manhattan distance.
