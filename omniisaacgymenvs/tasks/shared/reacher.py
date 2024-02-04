@@ -565,9 +565,12 @@ def compute_arm_reward(
     rot_comp = torch.sqrt(torch.square(object_rot - end_effector_rot).sum(-1))
     #print(rot_comp)
 
+    ### Rotation endeffectors and object reward###
+    rot_comp_rew = 1.0/(torch.abs(rot_comp) + rot_eps) * rot_reward_scale 
+
     ### Attachment ###
-    #attached= torch.where((torch.abs(endeffector_dist) <= 0.3) & (rot_comp <= 0.5), torch.ones_like(attached), attached)
-    attached= torch.where((torch.abs(endeffector_dist) <= 0.3), torch.ones_like(attached), attached)
+    attached= torch.where((torch.abs(endeffector_dist) <= 0.3) & (rot_comp <= 1.3), torch.ones_like(attached), attached) #maybe change rot_comp <= 0.5 to rot_comp <= 1.5 (based on test data avg_rot_comp = 1 - 1.5)
+    #attached= torch.where((torch.abs(endeffector_dist) <= 0.3), torch.ones_like(attached), attached)
     #print(attached)
     goal_dist = torch.where(attached == 1, object_dist, endeffector_dist)
     
@@ -608,8 +611,8 @@ def compute_arm_reward(
     
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
     reward = dist_rew + action_penalty * action_penalty_scale - height_penalty * 0.1 
-    reward = torch.where(attached == 0, reward -1, reward)
-    reward = torch.where(attached == 1, reward + 150+ rot_rew, reward)
+    reward = torch.where(attached == 0, reward -1 + rot_comp_rew, reward)
+    reward = torch.where(attached == 1, reward + 100+ rot_rew, reward)
     
     # Find out which envs hit the goal and update successes count
     #distance = torch.where(attached == 1, success_tolerance, 0.3)
@@ -620,11 +623,15 @@ def compute_arm_reward(
     # Success bonus: orientation is within `success_tolerance` of goal orientation
 
     reward = torch.where((goal_resets == 1), reward + reach_goal_bonus, reward)
+
+    ### Rotation progress_buf ###
+    rot_comp_dist = torch.where(attached == 1, rot_dist, rot_comp)
+    rot_comp_measure = torch.where(attached == 1, success_tolerance, float(1.5))
     
     resets = reset_buf
     if max_consecutive_successes > 0:
         # Reset progress buffer on goal envs if max_consecutive_successes > 0
-        progress_buf = torch.where(torch.abs(rot_dist) <= success_tolerance, torch.zeros_like(progress_buf), progress_buf)
+        progress_buf = torch.where(torch.abs(rot_comp_dist) <= rot_comp_measure, torch.zeros_like(progress_buf), progress_buf)
         resets = torch.where(successes >= max_consecutive_successes, torch.ones_like(resets), resets)
     resets = torch.where(progress_buf >= max_episode_length, torch.ones_like(resets), resets)
 
